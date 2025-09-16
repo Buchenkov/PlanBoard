@@ -1,3 +1,5 @@
+# Работа с базой данных
+
 import sqlite3, datetime
 from app.db import DB_PATH
 
