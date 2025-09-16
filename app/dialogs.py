@@ -4,8 +4,8 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 import datetime
 
 class TaskDialog(QtWidgets.QDialog):
-    def init(self, parent=None, task=None):
-        super().init(parent)
+    def __init__(self, parent=None, task=None):
+        super().__init__(parent)
         self.setWindowTitle("Задача")
         self.task = task
 

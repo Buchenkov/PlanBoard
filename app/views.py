@@ -134,7 +134,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         class FilterProxy(QtCore.QSortFilterProxyModel):
             def __init__(self, parent=None, predicate=None):
-                super().init(parent)
+                super().__init__(parent)
                 self.predicate = predicate
             def filterAcceptsRow(self, source_row, parent):
                 if self.predicate:

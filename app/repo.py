@@ -2,7 +2,7 @@ import sqlite3, datetime
 from app.db import DB_PATH
 
 class TaskRepo:
-    def init(self, path=DB_PATH):
+    def __init__(self, path=DB_PATH):
         self.path = path
 
     def _conn(self):

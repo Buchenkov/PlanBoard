@@ -6,8 +6,8 @@ import datetime
 class TaskTableModel(QtCore.QAbstractTableModel):
     headers = ["Название", "Срок", "Статус", "Приоритет", "ID"]
 
-    def init(self, repo):
-        super().init()
+    def __init__(self, repo):
+        super().__init__()
         self.repo = repo
         self.rows = []
         self.order_by = "due_date ASC, priority DESC, id DESC"
