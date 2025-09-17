@@ -17,3 +17,5 @@ dist/
 *.spec
 
 app/tasks.db
+app/tasks.db-shm 
+app/tasks.db-wal

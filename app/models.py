@@ -7,10 +7,12 @@ class TaskTableModel(QtCore.QAbstractTableModel):
     # Ключи полей и заголовки колонок
     COLUMNS = [
         ("title", "Название"),
+        ("description", "Описание"),   # добавлено второй колонкой
         ("due_date", "Срок"),
-        ("completed", "Статус"),
+        ("completed", "Выполнено"),
+        ("created_at", "Создано"),
         ("priority", "Приоритет"),
-        ("id", "ID"),
+        # ("id", "ID"),  # больше не показываем ID в таблице
     ]
 
     # Индексация для варианта с кортежами:
