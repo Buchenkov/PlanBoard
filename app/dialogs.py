@@ -1,7 +1,6 @@
 # Диалог добавления/редактирования задачи.
 
-from PyQt5 import QtWidgets, QtCore, QtGui
-import datetime
+from PyQt5 import QtWidgets, QtCore
 
 class TaskDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, task=None):
@@ -11,11 +10,14 @@ class TaskDialog(QtWidgets.QDialog):
 
         self.title_edit = QtWidgets.QLineEdit()
         self.desc_edit = QtWidgets.QPlainTextEdit()
+
         self.due_edit = QtWidgets.QDateEdit(calendarPopup=True)
         self.due_edit.setDisplayFormat("yyyy-MM-dd")
         self.due_edit.setDate(QtCore.QDate.currentDate())
+
         self.priority_spin = QtWidgets.QSpinBox()
         self.priority_spin.setRange(0, 10)
+
         self.completed_chk = QtWidgets.QCheckBox("Выполнено")
 
         form = QtWidgets.QFormLayout()
@@ -35,21 +37,49 @@ class TaskDialog(QtWidgets.QDialog):
         layout.addLayout(form)
         layout.addWidget(btns)
         self.setLayout(layout)
-        self.resize(400, 300)
+        self.resize(420, 320)
 
         if task:
             self._load_task(task)
 
     def _load_task(self, task):
-        task_id, title, desc, due, created, completed, priority = task
+        # Поддержка dict и tuple
+        if isinstance(task, dict):
+            title = task.get("title", "")
+            desc = task.get("description", "")
+            due_str = task.get("due_date") or ""
+            completed = bool(task.get("completed", 0))
+            try:
+                priority = int(task.get("priority") or 0)
+            except Exception:
+                priority = 0
+        else:
+            # Ожидаемый порядок кортежа:
+            # (id, title, description, due_date, created_at, completed, priority)
+            try:
+                _, title, desc, due_str, _, completed, priority = task
+            except Exception:
+                title, desc, due_str, completed, priority = "", "", "", 0, 0
+            try:
+                priority = int(priority or 0)
+            except Exception:
+                priority = 0
+            completed = bool(completed)
+
         self.title_edit.setText(title or "")
         self.desc_edit.setPlainText(desc or "")
-        try:
-            y, m, d = [int(x) for x in (due or "").split("-")]
-            self.due_edit.setDate(QtCore.QDate(y, m, d))
-        except Exception:
+
+        # Установка даты (формат yyyy-MM-dd)
+        if due_str:
+            qd = QtCore.QDate.fromString(str(due_str), "yyyy-MM-dd")
+            if qd.isValid():
+                self.due_edit.setDate(qd)
+            else:
+                self.due_edit.setDate(QtCore.QDate.currentDate())
+        else:
             self.due_edit.setDate(QtCore.QDate.currentDate())
-        self.priority_spin.setValue(int(priority or 0))
+
+        self.priority_spin.setValue(priority)
         self.completed_chk.setChecked(bool(completed))
 
     def get_data(self):
