@@ -11,6 +11,11 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
         super().__init__(parent)
         self._model = source_model
         self.mode = "Все"
+        self.setDynamicSortFilter(True)
+
+    def setSourceModel(self, model):
+        super().setSourceModel(model)
+        self._model = model
 
     def setMode(self, mode):
         if self.mode != mode:
@@ -18,7 +23,7 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
             self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row, parent):
-        # 1) Сначала применяем строковый фильтр (поиск)
+        # 1) Сначала применяем текстовый фильтр (поиск)
         if not super().filterAcceptsRow(source_row, parent):
             return False
 
@@ -53,12 +58,15 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
         if m == "Выполненные":
             return completed
         return True
-    
+
     def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-        if orientation == QtCore.Qt.Vertical and role == QtCore.Qt.DisplayRole:
-            # Нумерация строк 1..N в текущем порядке (после сорт/фильтра)
-            return section + 1
-        return super().headerData(section, orientation, role)
+        if orientation == QtCore.Qt.Vertical:
+            if role == QtCore.Qt.DisplayRole:
+                return str(section + 1)
+            if role == QtCore.Qt.TextAlignmentRole:
+                return int(QtCore.Qt.AlignCenter)
+        return super(FilterProxy, self).headerData(section, orientation, role)
+    
 
 class WrapDelegate(QtWidgets.QStyledItemDelegate):
     """
@@ -107,13 +115,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Настройки (для сохранения ширин колонок и геометрии окна)
         self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
 
-        # Попробуем восстановить геометрию окна (размер/позицию)
-        state_geom = self.settings.value("window_geometry")
-        if state_geom is not None:
-            try:
-                self.restoreGeometry(state_geom)
-            except Exception:
-                pass
+        # # Попробуем восстановить геометрию окна (размер/позицию)
+        # state_geom = self.settings.value("window_geometry")
+        # if state_geom is not None:
+        #     try:
+        #         self.restoreGeometry(state_geom)
+        #     except Exception:
+        #         pass
 
         # Модель
         self.model = TaskTableModel(repo, self)
@@ -240,7 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             hdr_state = self.view.horizontalHeader().saveState()
             self.settings.setValue("header_state", hdr_state)
-            self.settings.setValue("window_geometry", self.saveGeometry())
+            # self.settings.setValue("window_geometry", self.saveGeometry())
         finally:
             super().closeEvent(e)
 
@@ -301,42 +309,32 @@ class MainWindow(QtWidgets.QMainWindow):
         self.view.resizeRowsToContents()
 
     def show_context_menu(self, pos):
-        # Какая строка под курсором
         index = self.view.indexAt(pos)
         has_sel = index.isValid()
+        if has_sel:
+            # Выделим строку под курсором, чтобы команды работали по ней
+            self.view.selectRow(index.row())
 
         menu = QtWidgets.QMenu(self)
 
-        # Используем уже созданные действия
-        add_act = None
-        edit_act = None
-        del_act = None
-        refresh_act = None
-        # Найдём их среди дочерних QAction
-        for act in self.findChildren(QtWidgets.QAction):
-            if act.text() == "Добавить":
-                add_act = act
-            elif act.text() == "Редактировать":
-                edit_act = act
-            elif act.text() == "Удалить":
-                del_act = act
-            elif act.text() == "Обновить":
-                refresh_act = act
+        act_add = menu.addAction("Добавить")
+        act_add.triggered.connect(self.add_task)
 
-        if add_act:
-            menu.addAction(add_act)
-        if edit_act:
-            a = menu.addAction(edit_act)
-            a.setEnabled(has_sel)
-        if del_act:
-            a = menu.addAction(del_act)
-            a.setEnabled(has_sel)
+        act_edit = menu.addAction("Редактировать")
+        act_edit.setEnabled(has_sel)
+        act_edit.triggered.connect(self.edit_task)
+
+        act_del = menu.addAction("Удалить")
+        act_del.setEnabled(has_sel)
+        act_del.triggered.connect(self.delete_task)
 
         # Переключатель “Выполнено”
         task = self.selected_task() if has_sel else None
         if task:
             completed = bool(task.get("completed") if isinstance(task, dict) else task[5])
             toggle_text = "Отметить выполненной" if not completed else "Снять отметку выполнения"
+            menu.addSeparator()
+            act_toggle = menu.addAction(toggle_text)
 
             def toggle_completed():
                 task_id = task["id"] if isinstance(task, dict) else task[0]
@@ -347,29 +345,178 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.repo.update_task(task_id, title, desc, due, not completed, priority)
                 self.refresh()
 
-            menu.addSeparator()
-            menu.addAction(toggle_text, toggle_completed)
+            act_toggle.triggered.connect(toggle_completed)
 
-        if refresh_act:
-            menu.addSeparator()
-            menu.addAction(refresh_act)
+        menu.addSeparator()
+        act_refresh = menu.addAction("Обновить")
+        act_refresh.triggered.connect(self.refresh)
 
-        # Показать в глобальных координатах
         global_pos = self.view.viewport().mapToGlobal(pos)
         menu.exec_(global_pos)
 
+# Кастомная шапка окна
+class TitleBar(QtWidgets.QWidget):
+    height_hint = 36
 
+    def __init__(self, parent=None, title="Планировщик задач"):
+        super().__init__(parent)
+        self._pressed = False
+        self._start_pos = None
+        self._maximized = False
 
+        self.setFixedHeight(self.height_hint)
+        self.setAutoFillBackground(False)
+        self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
 
-# Пояснения коротко:
-# - Сохранение ширин: QSettings хранит состояние заголовка таблицы. При закрытии окна saveState(), при запуске restoreState().
-# - Многострочное описание:
-#   - setWordWrap(True) + setTextElideMode(ElideNone) чтобы текст не обрезался;
-#   - вертикальный заголовок ResizeToContents, чтобы высота строк бралась по sizeHint;
-#   - делегат WrapDelegate рассчитывает высоту на основе ширины колонки и текста (QTextDocument), поэтому описания любого размера будут видны целиком;
-#   - при изменении ширины колонки с описанием пересчитываем высоты строк.
+        self.title_label = QtWidgets.QLabel(title)
+        self.title_label.setStyleSheet("font-weight: 600;")
 
+        btn_size = 28
+        self.btn_min = QtWidgets.QToolButton(self)
+        self.btn_max = QtWidgets.QToolButton(self)
+        self.btn_close = QtWidgets.QToolButton(self)
 
+        self.btn_min.setText("—")
+        self.btn_max.setText("▢")
+        self.btn_close.setText("✕")
 
+        for b in (self.btn_min, self.btn_max, self.btn_close):
+            b.setFixedSize(btn_size, btn_size)
+            b.setStyleSheet("QToolButton { border: none; } QToolButton:hover { background: rgba(0,0,0,0.08); }")
+
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(10, 0, 6, 0)
+        lay.setSpacing(6)
+        lay.addWidget(self.title_label, 1)
+        lay.addWidget(self.btn_min)
+        lay.addWidget(self.btn_max)
+        lay.addWidget(self.btn_close)
+
+        self.btn_min.clicked.connect(self._on_min)
+        self.btn_max.clicked.connect(self._on_max_restore)
+        self.btn_close.clicked.connect(self._on_close)
+
+    def _window(self):
+        return self.window()
+
+    def _on_min(self):
+        self._window().showMinimized()
+
+    def _on_max_restore(self):
+        w = self._window()
+        if w.isMaximized():
+            w.showNormal()
+            self.btn_max.setText("▢")
+        else:
+            w.showMaximized()
+            self.btn_max.setText("❐")
+
+    def _on_close(self):
+        self._window().close()
+
+    def mousePressEvent(self, e):
+        if e.button() == QtCore.Qt.LeftButton:
+            self._pressed = True
+            self._start_pos = e.globalPos() - self._window().frameGeometry().topLeft()
+            e.accept()
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._pressed and not self._window().isMaximized():
+            self._window().move(e.globalPos() - self._start_pos)
+            e.accept()
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        self._pressed = False
+        super().mouseReleaseEvent(e)
+
+# Безрамочный контейнер поверх вашего MainWindow
+class FramelessWindow(QtWidgets.QWidget):
+    def __init__(self, repo, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+
+        self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
+
+        self.frame = QtWidgets.QFrame()
+        self.frame.setObjectName("frameRoot")
+        self.frame.setStyleSheet("""
+            QFrame#frameRoot {
+                background: palette(base);
+                border-radius: 10px;
+            }
+        """)
+        shadow = QtWidgets.QGraphicsDropShadowEffect(self)
+        shadow.setOffset(0, 8)
+        shadow.setBlurRadius(24)
+        shadow.setColor(QtGui.QColor(0, 0, 0, 90))
+        self.frame.setGraphicsEffect(shadow)
+
+        self.titlebar = TitleBar(self, title="Планировщик задач")
+
+        # ВАЖНО: вставляем ваш MainWindow как дочерний виджет
+        self.content = MainWindow(repo, parent=self.frame)
+        # Гарантируем, что он ведёт себя как виджет в layout
+        self.content.setWindowFlags(QtCore.Qt.Widget)
+        self.content.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+
+        # Компоновки
+        root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(0)
+        root.addWidget(self.frame)
+
+        content_layout = QtWidgets.QVBoxLayout(self.frame)
+        content_layout.setContentsMargins(1, 1, 1, 1)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self.titlebar)
+        content_layout.addWidget(self.content, 1)
+
+        # Грип для изменения размера
+        self.size_grip = QtWidgets.QSizeGrip(self.frame)
+        self.size_grip.setFixedSize(14, 14)
+        corner = QtWidgets.QHBoxLayout()
+        corner.setContentsMargins(0, 0, 0, 0)
+        corner.addStretch(1)
+        corner.addWidget(self.size_grip, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom)
+        content_layout.addLayout(corner)
+
+        # Восстановление геометрии
+        geom = self.settings.value("window_geometry")
+        if geom is not None:
+            try:
+                self.restoreGeometry(geom)
+            except Exception:
+                pass
+        win_state = int(self.settings.value("window_state", int(QtCore.Qt.WindowNoState)))
+        if win_state == int(QtCore.Qt.WindowMaximized):
+            self.showMaximized()
+
+        self.titlebar.mouseDoubleClickEvent = self._titlebar_double_click
+
+        # Быстрая диагностика
+        print("Frameless: frame has layout:", self.frame.layout() is not None)
+        print("Frameless: content isVisible:", self.content.isVisible())
+        # Если меню внутри MainWindow, покажет пункты:
+        try:
+            print("Frameless: menu actions:", [a.text() for a in self.content.menuBar().actions()])
+        except Exception as ex:
+            print("Frameless: menu inspect error:", ex)
+
+    def _titlebar_double_click(self, e):
+        if e.button() == QtCore.Qt.LeftButton:
+            self.titlebar._on_max_restore()
+
+    def closeEvent(self, e):
+        try:
+            self.settings.setValue("window_geometry", self.saveGeometry())
+            self.settings.setValue(
+                "window_state",
+                int(QtCore.Qt.WindowMaximized if self.isMaximized() else QtCore.Qt.WindowNoState)
+            )
+        finally:
+            super().closeEvent(e)
 
 

@@ -2,7 +2,7 @@ import sys
 from PyQt5 import QtGui, QtCore, QtWidgets
 from app.db import init_db
 from app.repo import TaskRepo
-from app.views import MainWindow
+from app.views import FramelessWindow
 from app.theme import enable_dark_theme, enable_light_theme
 
 
@@ -82,7 +82,7 @@ def main():
     else:
         enable_light_theme(app)
     repo = TaskRepo()
-    w = MainWindow(repo)
+    w = FramelessWindow(repo)
     w.show()
     sys.exit(app.exec_())
 
