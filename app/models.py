@@ -32,6 +32,10 @@ class TaskTableModel(QtCore.QAbstractTableModel):
         self.repo = repo
         self.rows = []
         self.order_by = "due_date ASC, priority DESC, id DESC"
+
+        # self.view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        # self.view.customContextMenuRequested.connect(self.show_context_menu)
+
         self.load()
 
     def load(self):
