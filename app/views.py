@@ -69,41 +69,82 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
         return super(FilterProxy, self).headerData(section, orientation, role)
     
 
+
 class WrapDelegate(QtWidgets.QStyledItemDelegate):
     """
-    Делегат, который рассчитывает высоту строки под многострочный текст.
-    Применим к колонке 'description'.
+    Делегат для многострочного текста с переносом длинных слов по ширине колонки.
+    Применяйте к колонке 'description'.
     """
     def __init__(self, view, parent=None):
         super().__init__(parent)
         self.view = view
-        self.margin = 6  # небольшой отступ
+        self.h_margin = 6
+        self.v_margin = 4
+
+    def _make_doc(self, option: QtWidgets.QStyleOptionViewItem, text: str, width: int, selected: bool):
+        # Создаём QTextDocument с переносом длинных слов
+        doc = QtGui.QTextDocument()
+        doc.setDefaultFont(option.font)
+
+        topt = QtGui.QTextOption()
+        # Перенос по границе слов или где угодно (чтобы длинные строки тоже переносились)
+        topt.setWrapMode(QtGui.QTextOption.WrapAtWordBoundaryOrAnywhere)
+        doc.setDefaultTextOption(topt)
+
+        # Цвет текста: учитываем выделение
+        color = option.palette.highlightedText().color() if selected else option.palette.text().color()
+
+        import html
+        safe = html.escape(text).replace("\n", "<br/>")
+        # Используем HTML, чтобы задать цвет и сохранить переносы
+        doc.setHtml(f'<div style="color:{color.name()}; white-space:pre-wrap;">{safe}</div>')
+
+        doc.setTextWidth(max(10, width))
+        return doc
 
     def sizeHint(self, option, index):
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
 
-        # ширина текущей колонки
-        col_w = self.view.columnWidth(index.column())
-        if col_w <= 0:
-            col_w = 300
-
-        doc = QtGui.QTextDocument()
-        doc.setDefaultFont(opt.font)
-        doc.setPlainText(opt.text)
-        # Вычтем небольшой отступ под паддинги
-        doc.setTextWidth(max(10, col_w - self.margin))
+        # Ширина — по текущей ширине колонки, минус горизонтальные поля
+        col_w = max(10, self.view.columnWidth(index.column()) - self.h_margin)
+        doc = self._make_doc(opt, opt.text, col_w, selected=bool(opt.state & QtWidgets.QStyle.State_Selected))
         sz = doc.size().toSize()
-        return QtCore.QSize(col_w, sz.height() + self.margin)
+        return QtCore.QSize(col_w + self.h_margin, sz.height() + self.v_margin)
 
     def paint(self, painter, option, index):
-        # Отключим эллипсисы, чтобы текст не обрезался ...
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
-        opt.textElideMode = QtCore.Qt.ElideNone
-        # … и отрисуем стандартным способом
-        style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
-        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        opt.textElideMode = QtCore.Qt.ElideNone  # не обрезаем текст троеточием
+
+        # Рисуем фон выделения (если есть)
+        if opt.state & QtWidgets.QStyle.State_Selected:
+            painter.save()
+            painter.fillRect(opt.rect, opt.palette.highlight())
+            painter.restore()
+
+        # Подготовим документ с переносами
+        rect = opt.rect.adjusted(self.h_margin // 2, self.v_margin // 2, -self.h_margin // 2, -self.v_margin // 2)
+        doc = self._make_doc(opt, opt.text, max(10, rect.width()), selected=bool(opt.state & QtWidgets.QStyle.State_Selected))
+
+        # Рисуем текст
+        painter.save()
+        painter.translate(rect.topLeft())
+        # Обрезаем рисование областью ячейки
+        clip = QtCore.QRectF(0, 0, rect.width(), rect.height())
+        doc.drawContents(painter, clip)
+        painter.restore()
+
+        # Рисуем фокус (рамку) поверх, как в стандартном делегате
+        if opt.state & QtWidgets.QStyle.State_HasFocus:
+            opt2 = QtWidgets.QStyleOptionFocusRect()
+            opt2.QStyleOption = QtWidgets.QStyleOption()
+            opt2.rect = opt.rect
+            opt2.state = QtWidgets.QStyle.State_KeyboardFocusChange | QtWidgets.QStyle.State_Item
+            opt2.backgroundColor = opt.palette.highlight().color()
+            style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+            style.drawPrimitive(QtWidgets.QStyle.PE_FrameFocusRect, opt2, painter, opt.widget)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, repo, parent=None):
