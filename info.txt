@@ -11,3 +11,37 @@ Strt:
 
     Файлы -wal и -shm — часть нормальной работы SQLite в режиме WAL. 
     По завершении программы - сами удаляются.
+
+
+Сборка:
+    1) Подготовьте файлы иконок
+    - Положите в app/resources/icons:
+    - minimize.svg
+    - maximize.svg
+    - restore.svg
+    - close.svg
+    - app.ico (или app.png, 256x256)
+
+2) Qt Resource (.qrc) и компиляция
+
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource prefix="/icons">
+    <file>icons/minimize.png</file>
+    <file>icons/maximize.png</file>
+    <file>icons/restore.png</file>
+    <file>icons/close.png</file>
+    <file>icons/app.ico</file>
+</qresource>
+</RCC>
+
+
+Сохраните как app/resources.qrc и скомпилируйте:
+
+    pyrcc5 -o app/resources_rc.py app/resources.qrc
+
+
+
+3) Импорт ресурсов и установка иконок
+    - В начале views.py добавьте:
+
+    from app import resources_rc  # регистрирует ресурсы :/icons/...

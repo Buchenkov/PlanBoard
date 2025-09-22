@@ -2,6 +2,8 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
 from datetime import date
 
+from app import resources_rc  # подключает ресурсы из resources.qrc
+
 from app.models import TaskTableModel
 from app.dialogs import TaskDialog
 from app.theme import enable_dark_theme, enable_light_theme
@@ -558,20 +560,30 @@ class TitleBar(QtWidgets.QWidget):
         self.btn_max.clicked.connect(self._on_max_restore)
         self.btn_close.clicked.connect(self._on_close)
 
+        self.btn_min.setIcon(QtGui.QIcon("app/resources/icons/minimize.svg"))
+        self.btn_max.setIcon(QtGui.QIcon("app/resources/icons/maximize.svg"))
+        self.btn_close.setIcon(QtGui.QIcon("app/resources/icons/close.svg"))
+
+        self.setWindowIcon(QtGui.QIcon("app/resources/icons/app.png"))
+
     def _window(self):
         return self.window()
 
     def _on_min(self):
         self._window().showMinimized()
 
+
     def _on_max_restore(self):
-        w = self._window()
+        w = self.window()
         if w.isMaximized():
             w.showNormal()
-            self.btn_max.setText("▢")
+            self.btn_max.setIcon(QtGui.QIcon("app/resources/icons/maximize.svg"))
+            self.btn_max.setToolTip("Развернуть")
         else:
             w.showMaximized()
-            self.btn_max.setText("❐")
+            self.btn_max.setIcon(QtGui.QIcon("app/resources/icons/restore.svg"))
+            self.btn_max.setToolTip("Восстановить")
+
 
     def _on_close(self):
         self._window().close()
@@ -605,106 +617,95 @@ class TitleBar(QtWidgets.QWidget):
             if w is not None and hasattr(w, "try_snap"):
                 w.try_snap(e.globalPos(), margin=20)
 
+# # Кастомная шапка окна
+# class FramelessWindow(QtWidgets.QWidget):
+#     RESIZE_MARGIN = 8  # ширина зоны ресайза по периметру окна
 
-class TitleBar(QtWidgets.QWidget):
-    height_hint = 36
+#     def __init__(self, repo, parent=None):
+#         super().__init__(parent)
+#         self.setObjectName("FramelessWindow")
 
-    def __init__(self, parent=None, title="Планировщик задач"):
-        super().__init__(parent)
-        self.setObjectName("TitleBar")
-        self._pressed = False
-        self._start_pos = None
+#         # Frameless окно; на Win7 с отключённым Aero возможны артефакты прозрачности.
+#         self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
+#         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)  # при проблемах — закомментируйте
 
-        self.setFixedHeight(self.height_hint)
-        self.setAutoFillBackground(False)
-        self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
+#         icon_svg = QtGui.QIcon(":/icons/app.png")
+#         if not icon_svg.isNull():
+#             self.setWindowIcon(icon_svg)
+#         else:
+#             self.setWindowIcon(QtGui.QIcon("app/resources/icons/app.png"))
 
-        self.title_label = QtWidgets.QLabel(title)
-        self.title_label.setObjectName("TitleLabel")
-        self.title_label.setStyleSheet("font-weight: 600;")
-        self.title_label.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
+#         self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
 
-        btn_size = 28
-        self.btn_min = QtWidgets.QToolButton(self); self.btn_min.setObjectName("BtnMin")
-        self.btn_max = QtWidgets.QToolButton(self); self.btn_max.setObjectName("BtnMax")
-        self.btn_close = QtWidgets.QToolButton(self); self.btn_close.setObjectName("BtnClose")
+#         # Внешний контейнер с тенью и скруглениями
+#         self.frame = QtWidgets.QFrame()
+#         self.frame.setObjectName("frameRoot")
+#         self.frame.setStyleSheet("""
+#             QFrame#frameRoot {
+#                 background: palette(base);
+#                 border-radius: 10px;
+#             }
+#         """)
 
-        self.btn_min.setText("—")
-        self.btn_max.setText("▢")
-        self.btn_close.setText("✕")
+#         # Тень может не работать без Aero. Если наблюдаете “черные углы” — закомментируйте эффект тени.
+#         shadow = QtWidgets.QGraphicsDropShadowEffect(self)
+#         shadow.setOffset(0, 8)
+#         shadow.setBlurRadius(24)
+#         shadow.setColor(QtGui.QColor(0, 0, 0, 90))
+#         self.frame.setGraphicsEffect(shadow)
 
-        for b in (self.btn_min, self.btn_max, self.btn_close):
-            b.setFixedSize(btn_size, btn_size)
-            b.setStyleSheet("QToolButton { border: none; } QToolButton:hover { background: rgba(0,0,0,0.08); }")
-            b.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
+#         # Кастомная шапка
+#         self.titlebar = TitleBar(self, title="Планировщик задач")
 
-        lay = QtWidgets.QHBoxLayout(self)
-        lay.setContentsMargins(10, 0, 6, 0)
-        lay.setSpacing(6)
-        lay.addWidget(self.title_label, 1)
-        lay.addWidget(self.btn_min)
-        lay.addWidget(self.btn_max)
-        lay.addWidget(self.btn_close)
+#         # Контент (ваш MainWindow)
+#         from app.views import MainWindow  # поправьте импорт под свой проект
+#         self.content = MainWindow(repo, parent=self.frame)
+#         self.content.setObjectName("MainWindowContent")
+#         self.content.setWindowFlags(QtCore.Qt.Widget)
+#         self.content.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
-        self.btn_min.clicked.connect(self._on_min)
-        self.btn_max.clicked.connect(self._on_max_restore)
-        self.btn_close.clicked.connect(self._on_close)
+#         # Отключаем контекстное меню у тулбаров внутри MainWindow
+#         for tb in self.content.findChildren(QtWidgets.QToolBar):
+#             tb.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
 
-    def _window(self):
-        return self.window()
+#         # Компоновки
+#         root = QtWidgets.QVBoxLayout(self)
+#         root.setContentsMargins(18, 18, 18, 18)  # отступ под тень
+#         root.setSpacing(0)
+#         root.addWidget(self.frame)
 
-    def _on_min(self):
-        w = self._window()
-        if w is not None:
-            w.showMinimized()
+#         content_layout = QtWidgets.QVBoxLayout(self.frame)
+#         content_layout.setContentsMargins(1, 1, 1, 1)
+#         content_layout.setSpacing(0)
+#         content_layout.addWidget(self.titlebar)
+#         content_layout.addWidget(self.content, 1)
 
-    def _on_max_restore(self):
-        w = self._window()
-        if w is None:
-            return
-        if w.isMaximized():
-            w.showNormal()
-            self.btn_max.setText("▢")
-        else:
-            w.showMaximized()
-            self.btn_max.setText("❐")
+#         # Грип для изменения размера
+#         self.size_grip = QtWidgets.QSizeGrip(self.frame)
+#         self.size_grip.setFixedSize(14, 14)
+#         corner = QtWidgets.QHBoxLayout()
+#         corner.setContentsMargins(0, 0, 0, 0)
+#         corner.addStretch(1)
+#         corner.addWidget(self.size_grip, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom)
+#         content_layout.addLayout(corner)
 
-    def _on_close(self):
-        w = self._window()
-        if w is not None:
-            w.close()
+#         # Фильтр событий — только ПКМ для системного меню
+#         self.installEventFilter(self)
+#         self.frame.installEventFilter(self)
+#         self.titlebar.installEventFilter(self)
+#         # Не ставим app.installEventFilter, чтобы не перехватывать лишнего
 
-    def mousePressEvent(self, e: QtGui.QMouseEvent):
-        if e.button() == QtCore.Qt.LeftButton:
-            self._pressed = True
-            w = self._window()
-            if w is not None:
-                self._start_pos = e.globalPos() - w.frameGeometry().topLeft()
-            e.accept()
-            return
-        super().mousePressEvent(e)
+#         # Восстановление геометрии и состояния
+#         geom = self.settings.value("window_geometry")
+#         if geom is not None:
+#             try:
+#                 self.restoreGeometry(geom)
+#             except Exception:
+#                 pass
+#         win_state = int(self.settings.value("window_state", int(QtCore.Qt.WindowNoState)))
+#         if win_state == int(QtCore.Qt.WindowMaximized):
+#             self.showMaximized()
 
-    def mouseMoveEvent(self, e: QtGui.QMouseEvent):
-        if self._pressed:
-            w = self._window()
-            if w is not None and not w.isMaximized():
-                w.move(e.globalPos() - (self._start_pos or QtCore.QPoint()))
-                e.accept()
-                return
-        super().mouseMoveEvent(e)
-
-    def mouseReleaseEvent(self, e: QtGui.QMouseEvent):
-        self._pressed = False
-        super().mouseReleaseEvent(e)
-
-    def mouseDoubleClickEvent(self, e: QtGui.QMouseEvent):
-        if e.button() == QtCore.Qt.LeftButton:
-            self._on_max_restore()
-            e.accept()
-            return
-        super().mouseDoubleClickEvent(e)
-
-# Кастомная шапка окна
 class FramelessWindow(QtWidgets.QWidget):
     RESIZE_MARGIN = 8  # ширина зоны ресайза по периметру окна
 
@@ -714,7 +715,10 @@ class FramelessWindow(QtWidgets.QWidget):
 
         # Frameless окно; на Win7 с отключённым Aero возможны артефакты прозрачности.
         self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
-        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)  # при проблемах — закомментируйте
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)  # при проблемах — отключаем в changeEvent
+
+        # Иконка приложения (путь с диска — путь А)
+        self.setWindowIcon(QtGui.QIcon("app/resources/icons/app.png"))
 
         self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
 
@@ -739,7 +743,7 @@ class FramelessWindow(QtWidgets.QWidget):
         self.titlebar = TitleBar(self, title="Планировщик задач")
 
         # Контент (ваш MainWindow)
-        from app.views import MainWindow  # поправьте импорт под свой проект
+        from app.views import MainWindow  # поправьте импорт под свой проект, если нужно
         self.content = MainWindow(repo, parent=self.frame)
         self.content.setObjectName("MainWindowContent")
         self.content.setWindowFlags(QtCore.Qt.Widget)
@@ -786,6 +790,242 @@ class FramelessWindow(QtWidgets.QWidget):
         win_state = int(self.settings.value("window_state", int(QtCore.Qt.WindowNoState)))
         if win_state == int(QtCore.Qt.WindowMaximized):
             self.showMaximized()
+
+        # Двойной клик по шапке — разворачивать/восстанавливать
+        self.titlebar.mouseDoubleClickEvent = self._titlebar_double_click
+
+    # ПКМ: системное меню Windows (или fallback на других платформах)
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.MouseButtonPress:
+            me = event  # QMouseEvent
+            if me.button() == QtCore.Qt.RightButton:
+                if isinstance(obj, QtWidgets.QWidget) and self.isAncestorOf(obj):
+                    self.show_system_menu(me.globalPos())
+                    return True
+        return super().eventFilter(obj, event)
+
+    def contextMenuEvent(self, e: QtGui.QContextMenuEvent):
+        # На случай, если система сгенерирует контекстное меню
+        self.show_system_menu(e.globalPos())
+
+    def show_system_menu(self, global_pos: QtCore.QPoint):
+        if sys.platform != "win32":
+            # Простое меню для macOS/Linux
+            menu = QtWidgets.QMenu(self)
+            act_min = menu.addAction("Свернуть")
+            act_max = menu.addAction("Восстановить" if self.isMaximized() else "Развернуть")
+            menu.addSeparator()
+            act_close = menu.addAction("Закрыть")
+            chosen = menu.exec_(global_pos)
+            if chosen == act_min:
+                self.showMinimized()
+            elif chosen == act_max:
+                self.showNormal() if self.isMaximized() else self.showMaximized()
+            elif chosen == act_close:
+                self.close()
+            return
+
+        # Windows: вызов системного меню через WinAPI
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            GWL_STYLE = -16
+            WS_SYSMENU = 0x00080000
+            WM_SYSCOMMAND = 0x0112
+            TPM_LEFTALIGN = 0x0000
+            TPM_RETURNCMD = 0x0100
+            TPM_RIGHTBUTTON = 0x0002
+
+            hwnd = int(self.winId())
+
+            # Добавим WS_SYSMENU, если его нет (нужно для системного меню у frameless-окна)
+            style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+            if (style & WS_SYSMENU) == 0:
+                user32.SetWindowLongW(hwnd, GWL_STYLE, style | WS_SYSMENU)
+
+            # Активируем окно перед показом меню
+            user32.SetForegroundWindow(hwnd)
+
+            hMenu = user32.GetSystemMenu(hwnd, False)
+            cmd = user32.TrackPopupMenu(
+                hMenu,
+                TPM_LEFTALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                int(global_pos.x()),
+                int(global_pos.y()),
+                0,
+                hwnd,
+                None
+            )
+            if cmd:
+                user32.PostMessageW(hwnd, WM_SYSCOMMAND, cmd, 0)
+                return
+        except Exception:
+            pass
+
+        # Fallback меню, если системное не сработало
+        menu = QtWidgets.QMenu(self)
+        act_min = menu.addAction("Свернуть")
+        act_max = menu.addAction("Восстановить" if self.isMaximized() else "Развернуть")
+        menu.addSeparator()
+        act_close = menu.addAction("Закрыть")
+        chosen = menu.exec_(global_pos)
+        if chosen == act_min:
+            self.showMinimized()
+        elif chosen == act_max:
+            self.showNormal() if self.isMaximized() else self.showMaximized()
+        elif chosen == act_close:
+            self.close()
+
+    # Снап к краям/углам экрана
+    def _available_geometry_at(self, global_pos: QtCore.QPoint) -> QtCore.QRect:
+        app = QtWidgets.QApplication.instance()
+        screen = None
+        if hasattr(QtWidgets.QApplication, "screenAt"):
+            screen = QtWidgets.QApplication.screenAt(global_pos)
+        if screen is not None:
+            return screen.availableGeometry()
+        desktop = app.desktop()
+        screen_num = desktop.screenNumber(global_pos)
+        return desktop.availableGeometry(screen_num)
+
+    def compute_snap_rect(self, global_pos: QtCore.QPoint, margin: int = 20):
+        ag = self._available_geometry_at(global_pos)
+        x, y = global_pos.x(), global_pos.y()
+        left, right, top, bottom = ag.left(), ag.right(), ag.top(), ag.bottom()
+        width, height = ag.width(), ag.height()
+
+        near_left = abs(x - left) <= margin
+        near_right = abs(x - right) <= margin
+        near_top = abs(y - top) <= margin
+        near_bottom = abs(y - bottom) <= margin
+
+        # Верх без левого/правого — максимизация
+        if near_top and not (near_left or near_right):
+            return "maximize", ag
+
+        # Углы — четверти
+        if near_left and near_top:
+            return "quarter_tl", QtCore.QRect(left, top, width // 2, height // 2)
+        if near_right and near_top:
+            return "quarter_tr", QtCore.QRect(left + width // 2, top, width // 2, height // 2)
+        if near_left and near_bottom:
+            return "quarter_bl", QtCore.QRect(left, top + height // 2, width // 2, height // 2)
+        if near_right and near_bottom:
+            return "quarter_br", QtCore.QRect(left + width // 2, top + height // 2, width // 2, height // 2)
+
+        # Лево/право — половины
+        if near_left:
+            return "half_left", QtCore.QRect(left, top, width // 2, height)
+        if near_right:
+            return "half_right", QtCore.QRect(left + width // 2, top, width // 2, height)
+
+        # Верх как запасной вариант — тоже максимизация
+        if near_top:
+            return "maximize", ag
+
+        return None, None
+
+    def try_snap(self, global_pos: QtCore.QPoint, margin: int = 20) -> bool:
+        kind, rect = self.compute_snap_rect(global_pos, margin)
+        if not kind:
+            return False
+        if kind == "maximize":
+            self.showMaximized()
+        else:
+            if self.isMaximized():
+                self.showNormal()
+            self.setGeometry(rect)
+        return True
+
+    # Windows: системный ресайз по краям/углам
+    def nativeEvent(self, eventType, message):
+        if sys.platform != "win32":
+            return False, 0
+        if eventType not in ("windows_generic_MSG", "windows_dispatcher_MSG"):
+            return False, 0
+        try:
+            WM_NCHITTEST = 0x0084
+            HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = 10, 11, 12, 13, 14, 15, 16, 17
+
+            from ctypes import wintypes, Structure, c_long
+
+            class POINT(Structure):
+                _fields_ = [("x", c_long), ("y", c_long)]
+
+            class MSG(Structure):
+                _fields_ = [
+                    ("hwnd", wintypes.HWND),
+                    ("message", wintypes.UINT),
+                    ("wParam", wintypes.WPARAM),
+                    ("lParam", wintypes.LPARAM),
+                    ("time", wintypes.DWORD),
+                    ("pt", POINT),
+                ]
+
+            ptr_val = message.int() if hasattr(message, "int") else int(message)
+            msg = MSG.from_address(ptr_val)
+
+            if msg.message != WM_NCHITTEST:
+                return False, 0
+            if self.isMaximized():
+                return False, 0
+
+            pos = QtGui.QCursor.pos()
+            x, y = pos.x(), pos.y()
+
+            rect = self.frameGeometry()
+            lx, rx = rect.left(), rect.right()
+            ty, by = rect.top(), rect.bottom()
+
+            m = self.RESIZE_MARGIN
+            on_left = lx <= x <= lx + m
+            on_right = rx - m <= x <= rx
+            on_top = ty <= y <= ty + m
+            on_bottom = by - m <= y <= by
+
+            if on_left and on_top:
+                return True, HTTOPLEFT
+            if on_right and on_top:
+                return True, HTTOPRIGHT
+            if on_left and on_bottom:
+                return True, HTBOTTOMLEFT
+            if on_right and on_bottom:
+                return True, HTBOTTOMRIGHT
+            if on_left:
+                return True, HTLEFT
+            if on_right:
+                return True, HTRIGHT
+            if on_top:
+                return True, HTTOP
+            if on_bottom:
+                return True, HTBOTTOM
+
+            return False, 0
+        except Exception:
+            return False, 0
+
+    # Фикс артефактов при разворачивании: отключаем прозрачность на Maximize
+    def changeEvent(self, e: QtCore.QEvent):
+        if e.type() == QtCore.QEvent.WindowStateChange:
+            if self.isMaximized():
+                self.setAttribute(QtCore.Qt.WA_TranslucentBackground, False)
+            else:
+                self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        super().changeEvent(e)
+
+    def _titlebar_double_click(self, e: QtGui.QMouseEvent):
+        if e.button() == QtCore.Qt.LeftButton:
+            self.titlebar._on_max_restore()
+
+    def closeEvent(self, e: QtGui.QCloseEvent):
+        try:
+            self.settings.setValue("window_geometry", self.saveGeometry())
+            self.settings.setValue(
+                "window_state",
+                int(QtCore.Qt.WindowMaximized if self.isMaximized() else QtCore.Qt.WindowNoState)
+            )
+        finally:
+            super().closeEvent(e)
 
     # ПКМ: системное меню Windows
     def eventFilter(self, obj, event):
@@ -983,342 +1223,5 @@ class FramelessWindow(QtWidgets.QWidget):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# class FramelessWindow(QtWidgets.QWidget):
-#     RESIZE_MARGIN = 8  # ширина зоны ресайза по периметру окна
-
-#     def __init__(self, repo, parent=None):
-#         super().__init__(parent)
-#         self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
-#         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
-
-#         # Настройки окна
-#         self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
-
-#         # Внешний контейнер с тенью и скруглениями
-#         self.frame = QtWidgets.QFrame()
-#         self.frame.setObjectName("frameRoot")
-#         self.frame.setStyleSheet("""
-#             QFrame#frameRoot {
-#                 background: palette(base);
-#                 border-radius: 10px;
-#             }
-#         """)
-#         shadow = QtWidgets.QGraphicsDropShadowEffect(self)
-#         shadow.setOffset(0, 8)
-#         shadow.setBlurRadius(24)
-#         shadow.setColor(QtGui.QColor(0, 0, 0, 90))
-#         self.frame.setGraphicsEffect(shadow)
-
-#         # Кастомная шапка
-#         self.titlebar = TitleBar(self, title="Планировщик задач")
-
-#         # Контент (ваш MainWindow)
-#         self.content = MainWindow(repo, parent=self.frame)
-#         self.content.setWindowFlags(QtCore.Qt.Widget)
-#         self.content.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-
-#         # Отключаем контекстное меню у всех тулбаров внутри MainWindow (чтобы не было чекбокса)
-#         for tb in self.content.findChildren(QtWidgets.QToolBar):
-#             tb.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
-
-#         # Компоновки
-#         root = QtWidgets.QVBoxLayout(self)
-#         root.setContentsMargins(18, 18, 18, 18)  # отступ под тень
-#         root.setSpacing(0)
-#         root.addWidget(self.frame)
-
-#         content_layout = QtWidgets.QVBoxLayout(self.frame)
-#         content_layout.setContentsMargins(1, 1, 1, 1)
-#         content_layout.setSpacing(0)
-#         content_layout.addWidget(self.titlebar)
-#         content_layout.addWidget(self.content, 1)
-
-#         # Грип для изменения размера
-#         self.size_grip = QtWidgets.QSizeGrip(self.frame)
-#         self.size_grip.setFixedSize(14, 14)
-#         corner = QtWidgets.QHBoxLayout()
-#         corner.setContentsMargins(0, 0, 0, 0)
-#         corner.addStretch(1)
-#         corner.addWidget(self.size_grip, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom)
-#         content_layout.addLayout(corner)
-
-#         # Кастомное контекстное меню по правому клику на всём окне (включая прозрачный верхний отступ)
-#         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-#         self.customContextMenuRequested.connect(
-#             lambda pos: self.show_system_menu(self.mapToGlobal(pos))
-#         )
-
-#         # Восстановление геометрии
-#         geom = self.settings.value("window_geometry")
-#         if geom is not None:
-#             try:
-#                 self.restoreGeometry(geom)
-#             except Exception:
-#                 pass
-#         win_state = int(self.settings.value("window_state", int(QtCore.Qt.WindowNoState)))
-#         if win_state == int(QtCore.Qt.WindowMaximized):
-#             self.showMaximized()
-
-#         # Двойной клик по шапке — разворачивать/восстанавливать
-#         self.titlebar.mouseDoubleClickEvent = self._titlebar_double_click
-
-#     def contextMenuEvent(self, e: QtGui.QContextMenuEvent):
-#         # Резервный путь показа системного меню
-#         self.show_system_menu(e.globalPos())
-
-#     def show_system_menu(self, global_pos: QtCore.QPoint):
-#         # Показ системного меню Windows
-#         if sys.platform != "win32":
-#             # Fallback-меню для других ОС
-#             menu = QtWidgets.QMenu(self)
-#             act_min = menu.addAction("Свернуть")
-#             act_max = menu.addAction("Восстановить" if self.isMaximized() else "Развернуть")
-#             menu.addSeparator()
-#             act_close = menu.addAction("Закрыть")
-#             chosen = menu.exec_(global_pos)
-#             if chosen == act_min:
-#                 self.showMinimized()
-#             elif chosen == act_max:
-#                 self.showNormal() if self.isMaximized() else self.showMaximized()
-#             elif chosen == act_close:
-#                 self.close()
-#             return
-
-#         try:
-#             import ctypes
-#             user32 = ctypes.windll.user32
-#             WM_SYSCOMMAND = 0x0112
-#             TPM_LEFTALIGN = 0x0000
-#             TPM_RETURNCMD = 0x0100
-#             TPM_RIGHTBUTTON = 0x0002
-
-#             hwnd = int(self.winId())
-#             hMenu = user32.GetSystemMenu(hwnd, False)
-#             cmd = user32.TrackPopupMenu(
-#                 hMenu,
-#                 TPM_LEFTALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON,
-#                 int(global_pos.x()),
-#                 int(global_pos.y()),
-#                 0,
-#                 hwnd,
-#                 None
-#             )
-#             if cmd:
-#                 user32.PostMessageW(hwnd, WM_SYSCOMMAND, cmd, 0)
-#         except Exception:
-#             # Fallback, если WinAPI не сработал
-#             menu = QtWidgets.QMenu(self)
-#             act_min = menu.addAction("Свернуть")
-#             act_max = menu.addAction("Восстановить" if self.isMaximized() else "Развернуть")
-#             menu.addSeparator()
-#             act_close = menu.addAction("Закрыть")
-#             chosen = menu.exec_(global_pos)
-#             if chosen == act_min:
-#                 self.showMinimized()
-#             elif chosen == act_max:
-#                 self.showNormal() if self.isMaximized() else self.showMaximized()
-#             elif chosen == act_close:
-#                 self.close()
-
-#     # Windows: системный ресайз по краям/углам
-#     def nativeEvent(self, eventType, message):
-#         if sys.platform != "win32":
-#             return False, 0
-#         if eventType not in ("windows_generic_MSG", "windows_dispatcher_MSG"):
-#             return False, 0
-#         try:
-#             WM_NCHITTEST = 0x0084
-#             HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = 10, 11, 12, 13, 14, 15, 16, 17
-
-#             from ctypes import wintypes, Structure, c_long
-
-#             class POINT(Structure):
-#                 _fields_ = [("x", c_long), ("y", c_long)]
-
-#             class MSG(Structure):
-#                 _fields_ = [
-#                     ("hwnd", wintypes.HWND),
-#                     ("message", wintypes.UINT),
-#                     ("wParam", wintypes.WPARAM),
-#                     ("lParam", wintypes.LPARAM),
-#                     ("time", wintypes.DWORD),
-#                     ("pt", POINT),
-#                 ]
-
-#             ptr_val = message.int() if hasattr(message, "int") else int(message)
-#             msg = MSG.from_address(ptr_val)
-
-#             if msg.message != WM_NCHITTEST:
-#                 return False, 0
-#             if self.isMaximized():
-#                 return False, 0
-
-#             pos = QtGui.QCursor.pos()
-#             x, y = pos.x(), pos.y()
-
-#             rect = self.frameGeometry()
-#             lx, rx = rect.left(), rect.right()
-#             ty, by = rect.top(), rect.bottom()
-
-#             m = self.RESIZE_MARGIN
-#             on_left = lx <= x <= lx + m
-#             on_right = rx - m <= x <= rx
-#             on_top = ty <= y <= ty + m
-#             on_bottom = by - m <= y <= by
-
-#             if on_left and on_top:
-#                 return True, HTTOPLEFT
-#             if on_right and on_top:
-#                 return True, HTTOPRIGHT
-#             if on_left and on_bottom:
-#                 return True, HTBOTTOMLEFT
-#             if on_right and on_bottom:
-#                 return True, HTBOTTOMRIGHT
-#             if on_left:
-#                 return True, HTLEFT
-#             if on_right:
-#                 return True, HTRIGHT
-#             if on_top:
-#                 return True, HTTOP
-#             if on_bottom:
-#                 return True, HTBOTTOM
-
-#             return False, 0
-#         except Exception:
-#             return False, 0
-
-#     def _titlebar_double_click(self, e):
-#         if e.button() == QtCore.Qt.LeftButton:
-#             self.titlebar._on_max_restore()
-
-#     def closeEvent(self, e):
-#         try:
-#             self.settings.setValue("window_geometry", self.saveGeometry())
-#             self.settings.setValue(
-#                 "window_state",
-#                 int(QtCore.Qt.WindowMaximized if self.isMaximized() else QtCore.Qt.WindowNoState)
-#             )
-#         finally:
-#             super().closeEvent(e)
-
-
-# class TitleBar(QtWidgets.QWidget):
-#     height_hint = 36
-
-#     def __init__(self, parent=None, title="Планировщик задач"):
-#         super().__init__(parent)
-#         self._pressed = False
-#         self._start_pos = None
-
-#         self.setFixedHeight(self.height_hint)
-#         self.setAutoFillBackground(False)
-#         self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
-
-#         self.title_label = QtWidgets.QLabel(title)
-#         self.title_label.setStyleSheet("font-weight: 600;")
-
-#         btn_size = 28
-#         self.btn_min = QtWidgets.QToolButton(self)
-#         self.btn_max = QtWidgets.QToolButton(self)
-#         self.btn_close = QtWidgets.QToolButton(self)
-
-#         self.btn_min.setText("—")
-#         self.btn_max.setText("▢")
-#         self.btn_close.setText("✕")
-
-#         for b in (self.btn_min, self.btn_max, self.btn_close):
-#             b.setFixedSize(btn_size, btn_size)
-#             b.setStyleSheet("QToolButton { border: none; } QToolButton:hover { background: rgba(0,0,0,0.08); }")
-
-#         lay = QtWidgets.QHBoxLayout(self)
-#         lay.setContentsMargins(10, 0, 6, 0)
-#         lay.setSpacing(6)
-#         lay.addWidget(self.title_label, 1)
-#         lay.addWidget(self.btn_min)
-#         lay.addWidget(self.btn_max)
-#         lay.addWidget(self.btn_close)
-
-#         self.btn_min.clicked.connect(self._on_min)
-#         self.btn_max.clicked.connect(self._on_max_restore)
-#         self.btn_close.clicked.connect(self._on_close)
-
-#         # Кастомное контекстное меню на шапке
-#         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-#         self.customContextMenuRequested.connect(
-#             lambda pos: self._call_system_menu(self.mapToGlobal(pos))
-#         )
-
-#     def _window(self):
-#         return self.window()
-
-#     def _call_system_menu(self, global_pos):
-#         w = self._window()
-#         if hasattr(w, "show_system_menu"):
-#             w.show_system_menu(global_pos)
-
-#     def _on_min(self):
-#         self._window().showMinimized()
-
-#     def _on_max_restore(self):
-#         w = self._window()
-#         if w.isMaximized():
-#             w.showNormal()
-#             self.btn_max.setText("▢")
-#         else:
-#             w.showMaximized()
-#             self.btn_max.setText("❐")
-
-#     def _on_close(self):
-#         self._window().close()
-
-#     def mousePressEvent(self, e: QtGui.QMouseEvent):
-#         # Обрабатываем и левую (перетаскивание), и правую (системное меню) кнопки
-#         if e.button() == QtCore.Qt.RightButton:
-#             self._call_system_menu(e.globalPos())
-#             e.accept()
-#             return
-#         if e.button() == QtCore.Qt.LeftButton:
-#             self._pressed = True
-#             # безопасная проверка: если вдруг нет окна или оно None
-#             w = self._window()
-#             if w is not None:
-#                 self._start_pos = e.globalPos() - w.frameGeometry().topLeft()
-#             e.accept()
-#             return
-#         super().mousePressEvent(e)
-
-#     def mouseMoveEvent(self, e: QtGui.QMouseEvent):
-#         if self._pressed:
-#             w = self._window()
-#             if w is not None and not w.isMaximized():
-#                 w.move(e.globalPos() - (self._start_pos or QtCore.QPoint()))
-#                 e.accept()
-#                 return
-#         super().mouseMoveEvent(e)
-
-#     def mouseReleaseEvent(self, e: QtGui.QMouseEvent):
-#         self._pressed = False
-#         super().mouseReleaseEvent(e)
-
-#     def contextMenuEvent(self, e: QtGui.QContextMenuEvent):
-#         # Резервный вызов системного меню
-#         self._call_system_menu(e.globalPos())
 
 

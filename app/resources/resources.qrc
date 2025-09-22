@@ -1,0 +1,10 @@
+
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource prefix="/icons">
+  <file alias="minimize.svg">icons/minimize.svg</file>
+  <file alias="maximize.svg">icons/maximize.svg</file>
+  <file alias="restore.svg">icons/restore.svg</file>
+  <file alias="close.svg">icons/close.svg</file>
+  <file alias="app.png">icons/app.png</file>
+</qresource>
+</RCC>
