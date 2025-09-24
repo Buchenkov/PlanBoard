@@ -45,3 +45,41 @@ Strt:
     - В начале views.py добавьте:
 
     from app import resources_rc  # регистрирует ресурсы :/icons/...
+                                    или полный адрес
+
+
+-------------------------------------------------------
+EXE
+
+упакуем текущий проект в exe для Windows 7 (Python 3.7 x86) с PyInstaller. 
+Для Python 3.7-32, рекомендуется PyInstaller 4.10 — он стабильно работает на Win7 и поддерживает 3.7.
+
+Шаги установки в venv:
+
+- python -m pip install --upgrade pip
+- pip uninstall -y pyinstaller
+- pip install "pyinstaller==4.10"
+
+
+Собрать проект.  Если есть build.bat
+
+    .\build.bat
+
+
+Если build.bat нет или хочешь вручную — выполни команду PyInstaller:
+
+pyinstaller --noconfirm --name "PlanBoard" --onefile --windowed ^
+  --icon "app\resources\icons\app.ico" ^
+  --add-data "app\resources;app\resources" ^
+  app\main.py
+
+
+5) Проверь результат
+
+dir dist
+.\dist\PlanBoard.exe
+
+
+сборка с PyInstaller - работает!!!
+(venv) PS F:\Projects\PlanBoard> .\venv\Scripts\pyinstaller.exe --onefile --windowed --icon "F:\Projects\PlanBoard\app\resources\icons\app.ico" --add-data "F:\Projects\PlanBoard\app\resources;app\resources" "F:\Projects\PlanBoard\app\main.py"
+

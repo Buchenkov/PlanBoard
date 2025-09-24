@@ -1,13 +1,20 @@
 # Диалог добавления/редактирования задачи.
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 
-class TaskDialog(QtWidgets.QDialog):
+class TaskEditDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, task=None):
         super().__init__(parent)
+        # Убираем кнопку "?" в заголовке
+        flags = self.windowFlags()
+        flags &= ~QtCore.Qt.WindowContextHelpButtonHint
+        self.setWindowFlags(flags)
+
         self.setWindowTitle("Задача")
+        self.setModal(True)
         self.task = task
 
+        # Поля формы
         self.title_edit = QtWidgets.QLineEdit()
         self.desc_edit = QtWidgets.QPlainTextEdit()
 
@@ -20,6 +27,7 @@ class TaskDialog(QtWidgets.QDialog):
 
         self.completed_chk = QtWidgets.QCheckBox("Выполнено")
 
+        # Компоновка
         form = QtWidgets.QFormLayout()
         form.addRow("Название:", self.title_edit)
         form.addRow("Описание:", self.desc_edit)
@@ -33,10 +41,9 @@ class TaskDialog(QtWidgets.QDialog):
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
 
-        layout = QtWidgets.QVBoxLayout()
+        layout = QtWidgets.QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(btns)
-        self.setLayout(layout)
         self.resize(420, 320)
 
         if task:
@@ -54,7 +61,6 @@ class TaskDialog(QtWidgets.QDialog):
             except Exception:
                 priority = 0
         else:
-            # Ожидаемый порядок кортежа:
             # (id, title, description, due_date, created_at, completed, priority)
             try:
                 _, title, desc, due_str, _, completed, priority = task
@@ -69,7 +75,7 @@ class TaskDialog(QtWidgets.QDialog):
         self.title_edit.setText(title or "")
         self.desc_edit.setPlainText(desc or "")
 
-        # Установка даты (формат yyyy-MM-dd)
+        # Установка даты
         if due_str:
             qd = QtCore.QDate.fromString(str(due_str), "yyyy-MM-dd")
             if qd.isValid():
@@ -89,3 +95,6 @@ class TaskDialog(QtWidgets.QDialog):
         priority = int(self.priority_spin.value())
         completed = self.completed_chk.isChecked()
         return title, desc, due, completed, priority
+
+# Алиас для совместимости со старым импортом
+TaskDialog = TaskEditDialog
