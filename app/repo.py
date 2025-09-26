@@ -1,6 +1,5 @@
 # # Работа с базой данных
 
-
 import sqlite3
 from contextlib import contextmanager
 from app.paths import db_path
@@ -10,14 +9,17 @@ class TaskRepo:
         self.path = str(path or db_path())
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
+        # Включаем целостность и адекватный журнал
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.execute("PRAGMA synchronous = NORMAL")
 
     def close(self):
         if getattr(self, "conn", None):
-            self.conn.close()
-            self.conn = None
+            try:
+                self.conn.close()
+            finally:
+                self.conn = None
 
     @contextmanager
     def transaction(self):
@@ -70,10 +72,11 @@ class TaskRepo:
 
     def update_task(self, task_id, title=None, description=None, due_date=None, completed=None, priority=None):
         parts, params = [], []
+
         if title is not None:
             parts.append("title = ?"); params.append(title)
         if description is not None:
-            parts.app ("description = ?"); params.append(description)
+            parts.append("description = ?"); params.append(description)
         if due_date is not None:
             parts.append("due_date = ?"); params.append(due_date)
         if completed is not None:
@@ -110,11 +113,11 @@ class TaskRepo:
 
 # import sqlite3
 # from contextlib import contextmanager
-# from app.db import DB_PATH
+# from app.paths import db_path
 
 # class TaskRepo:
-#     def __init__(self, path=DB_PATH):
-#         self.path = str(path)
+#     def __init__(self, path=None):
+#         self.path = str(path or db_path())
 #         self.conn = sqlite3.connect(self.path)
 #         self.conn.row_factory = sqlite3.Row
 #         self.conn.execute("PRAGMA foreign_keys = ON")
@@ -175,8 +178,10 @@ class TaskRepo:
 #             cur.execute(sql, (title, description, due_date, int(priority)))
 #             return cur.lastrowid
 
+
 #     def update_task(self, task_id, title=None, description=None, due_date=None, completed=None, priority=None):
 #         parts, params = [], []
+
 #         if title is not None:
 #             parts.append("title = ?"); params.append(title)
 #         if description is not None:
