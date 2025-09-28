@@ -1,23 +1,40 @@
-from PyQt5 import QtCore, QtGui, QtWidgets
-from app.models import TaskTableModel
-from datetime import date
-from app.dialogs import TaskEditDialog
-
 import sys
+from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
+import datetime
+
+from app.models import TaskTableModel
+from app.dialogs import TaskDialog
+from app.theme import enable_dark_theme, enable_light_theme
 
 
 class FilterProxy(QtCore.QSortFilterProxyModel):
-    def __init__(self, source_model, parent=None):
+    def __init__(self, source_model=None, parent=None):
         super().__init__(parent)
         self._model = source_model
         self.mode = "Все"
-        # Поиск будет регистронезависимым
+        # Поиск регистронезависимый
         self.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        # Автообновление при изменении данных/сортировки
+        self.setDynamicSortFilter(True)
+        if source_model is not None:
+            super().setSourceModel(source_model)
+
+    def setSourceModel(self, model):
+        super().setSourceModel(model)
+        self._model = model
 
     def setMode(self, mode: str):
         if self.mode != mode:
             self.mode = mode
             self.invalidateFilter()
+
+    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
+        if orientation == QtCore.Qt.Vertical:
+            if role == QtCore.Qt.DisplayRole:
+                return str(section + 1)
+            if role == QtCore.Qt.TextAlignmentRole:
+                return int(QtCore.Qt.AlignCenter)
+        return super().headerData(section, orientation, role)
 
     def filterAcceptsRow(self, source_row, parent):
         # 1) Строковый фильтр (поиск)
@@ -26,7 +43,10 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
 
         # 2) Фильтр по режиму
         try:
-            r = self._model.rows[source_row]
+            rows = getattr(self._model, "rows", None)
+            if rows is None or source_row < 0 or source_row >= len(rows):
+                return True
+            r = rows[source_row]
         except Exception:
             return True
 
@@ -44,11 +64,11 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
                 due = None
 
         try:
-            due_date = date.fromisoformat(due) if due else None
+            due_date = datetime.date.fromisoformat(due) if due else None
         except Exception:
             due_date = None
 
-        today = date.today()
+        today = datetime.date.today()
         m = self.mode
 
         if m == "Все":
@@ -63,10 +83,159 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
             return completed
         return True
     
+    
+class TitleBar(QtWidgets.QWidget):
+    height_hint = 36
+
+    def __init__(self, parent=None, title="Планировщик задач"):
+        super().__init__(parent)
+        self.setObjectName("TitleBar")
+        self._pressed = False
+        self._start_pos = None
+
+        # Кнопки управления окном
+        self.btn_min = QtWidgets.QToolButton(self); self.btn_min.setObjectName("BtnMin")
+        self.btn_max = QtWidgets.QToolButton(self); self.btn_max.setObjectName("BtnMax")
+        self.btn_close = QtWidgets.QToolButton(self); self.btn_close.setObjectName("BtnClose")
+        for b in (self.btn_min, self.btn_max, self.btn_close):
+            b.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
+            b.setCursor(QtCore.Qt.ArrowCursor)
+            b.setAutoRaise(True)
+
+        # Текстовые fallback-иконки (если нет ресурсов)
+        self.btn_min.setText("–")
+        self.btn_max.setText("□")
+        self.btn_close.setText("×")
+
+        # Заголовок
+        self.label = QtWidgets.QLabel(title, self)
+        self.label.setObjectName("TitleText")
+        self.label.setAlignment(QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft)
+
+        # Компоновка
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(10, 0, 6, 0)
+        lay.setSpacing(6)
+        lay.addWidget(self.label, 1)
+        lay.addWidget(self.btn_min)
+        lay.addWidget(self.btn_max)
+        lay.addWidget(self.btn_close)
+
+        # Сигналы
+        self.btn_min.clicked.connect(self._on_minimize)
+        self.btn_max.clicked.connect(self._on_max_restore)
+        self.btn_close.clicked.connect(self._on_close)
+
+        # Применим стили и размеры
+        self._apply_style()
+
+    def _apply_style(self):
+        # Фиксируем высоту шапки
+        self.setMinimumHeight(self.height_hint)
+        self.setMaximumHeight(self.height_hint)
+
+        # Аккуратный стиль для тёмной/светлой темы
+        self.setStyleSheet("""
+            QWidget#TitleBar {
+                background: transparent;
+            }
+            QLabel#TitleText {
+                color: palette(windowText);
+                font-weight: 600;
+            }
+            QToolButton#BtnMin, QToolButton#BtnMax, QToolButton#BtnClose {
+                padding: 4px;
+                border-radius: 4px;
+                color: palette(buttonText);
+            }
+            QToolButton#BtnMin:hover, QToolButton#BtnMax:hover {
+                background: rgba(128,128,128,0.25);
+            }
+            QToolButton#BtnClose:hover {
+                background: rgba(255,0,0,0.25);
+            }
+        """)
+
+        # Попробуем подставить иконки из ресурсов, если есть
+        try:
+            from PyQt5 import QtGui
+            self.btn_min.setIcon(QtGui.QIcon("app/resources/icons/minimize.svg"))
+            self.btn_max.setIcon(QtGui.QIcon("app/resources/icons/maximize.svg"))
+            self.btn_close.setIcon(QtGui.QIcon("app/resources/icons/close.svg"))
+            # Если иконки заданы — уберём текст
+            self.btn_min.setText("")
+            self.btn_max.setText("")
+            self.btn_close.setText("")
+        except Exception:
+            # нет resources_rc — остаёмся на текстовых символах
+            pass
+
+    def _window(self):
+        # Возвращаем верхнеуровневое окно
+        return self.window()
+
+    def _on_minimize(self):
+        w = self._window()
+        if w: w.showMinimized()
+
+    def _on_max_restore(self):
+        w = self._window()
+        if not w: return
+        if w.isMaximized():
+            w.showNormal()
+            # сменим символ на "максимизировать"
+            if not self.btn_max.icon().isNull():
+                # если иконка из ресурсов есть — можно ничего не менять
+                pass
+            else:
+                self.btn_max.setText("□")
+        else:
+            w.showMaximized()
+            if not self.btn_max.icon().isNull():
+                pass
+            else:
+                # символ "восстановить"
+                self.btn_max.setText("❐")
+
+    def _on_close(self):
+        w = self._window()
+        if w: w.close()
+
+    # Перетаскивание окна левой кнопкой мыши за шапку
+    def mousePressEvent(self, e: QtGui.QMouseEvent):
+        if e.button() == QtCore.Qt.LeftButton:
+            self._pressed = True
+            w = self._window()
+            if w is not None:
+                self._start_pos = e.globalPos() - w.frameGeometry().topLeft()
+            e.accept(); return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e: QtGui.QMouseEvent):
+        if self._pressed:
+            w = self._window()
+            if w is not None and not w.isMaximized():
+                w.move(e.globalPos() - (self._start_pos or QtCore.QPoint()))
+                e.accept(); return
+        super().mouseMoveEvent(e)
+
+    def mouseDoubleClickEvent(self, e: QtGui.QMouseEvent):
+        if e.button() == QtCore.Qt.LeftButton:
+            self._on_max_restore()
+            e.accept(); return
+        super().mouseDoubleClickEvent(e)
+
+    def mouseReleaseEvent(self, e: QtGui.QMouseEvent):
+        self._pressed = False
+        super().mouseReleaseEvent(e)
+
+
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 class WrapDelegate(QtWidgets.QStyledItemDelegate):
     """
-    Делегат для переноса длинных строк по ширине колонки (включая без пробелов).
+    Делегат для переноса длинных строк по ширине колонки
+    (включая последовательности без пробелов).
     """
     def __init__(self, view, parent=None):
         super().__init__(parent)
@@ -79,16 +248,14 @@ class WrapDelegate(QtWidgets.QStyledItemDelegate):
         doc.setDefaultFont(option.font)
 
         topt = QtGui.QTextOption()
-        # перенос даже внутри «слова» (цифры подряд, без пробелов)
+        # Перенос по границе слов или где угодно (лучше, чем WrapAnywhere)
         topt.setWrapMode(QtGui.QTextOption.WrapAtWordBoundaryOrAnywhere)
         doc.setDefaultTextOption(topt)
 
-        # цвет текста
-        color = option.palette.highlightedText().color() if selected else option.palette.text().color()
-
+        # Используем HTML, чтобы корректно отрисовать цвет и сохранить явные переносы
         import html
         safe = html.escape(text or "").replace("\n", "<br/>")
-        # white-space:pre-wrap сохраняет явные \n, переносит остальное
+        color = option.palette.highlightedText().color() if selected else option.palette.text().color()
         doc.setHtml(f'<div style="color:{color.name()}; white-space:pre-wrap;">{safe}</div>')
 
         doc.setTextWidth(max(10, width))
@@ -97,7 +264,7 @@ class WrapDelegate(QtWidgets.QStyledItemDelegate):
     def sizeHint(self, option, index):
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
-        # Текст берём напрямую из модели (иногда opt.text бывает пустым)
+        # Берём текст напрямую из модели (opt.text иногда пуст)
         text = str(index.data(QtCore.Qt.DisplayRole) or "")
         col_w = max(10, self.view.columnWidth(index.column()) - self.h_margin)
         doc = self._make_doc(opt, text, col_w, selected=bool(opt.state & QtWidgets.QStyle.State_Selected))
@@ -109,14 +276,15 @@ class WrapDelegate(QtWidgets.QStyledItemDelegate):
         self.initStyleOption(opt, index)
         opt.textElideMode = QtCore.Qt.ElideNone
 
-        # фон выделения
-        if opt.state & QtWidgets.QStyle.State_Selected:
-            painter.save()
-            painter.fillRect(opt.rect, opt.palette.highlight())
-            painter.restore()
-
-        # текст напрямую из модели
+        # Рисуем стандартный фон/selection без текста
         text = str(index.data(QtCore.Qt.DisplayRole) or "")
+        opt_text_backup = opt.text
+        opt.text = ""
+        style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        opt.text = opt_text_backup
+
+        # Подготовка документа
         rect = opt.rect.adjusted(self.h_margin // 2, self.v_margin // 2, -self.h_margin // 2, -self.v_margin // 2)
         doc = self._make_doc(opt, text, max(10, rect.width()), selected=bool(opt.state & QtWidgets.QStyle.State_Selected))
 
@@ -126,158 +294,14 @@ class WrapDelegate(QtWidgets.QStyledItemDelegate):
         doc.drawContents(painter, clip)
         painter.restore()
 
-        # фокус, как в стандартном делегате
-        if opt.state & QtWidgets.QStyle.State_HasFocus:
-            opt2 = QtWidgets.QStyleOptionFocusRect()
-            opt2.rect = opt.rect
-            opt2.state = QtWidgets.QStyle.State_KeyboardFocusChange | QtWidgets.QStyle.State_Item
-            opt2.backgroundColor = opt.palette.highlight().color()
-            style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
-            style.drawPrimitive(QtWidgets.QStyle.PE_FrameFocusRect, opt2, painter, opt.widget)
-
-
-class TitleBar(QtWidgets.QWidget):
-    height_hint = 36
-    def __init__(self, parent=None, title="Планировщик задач"):
-        super().__init__(parent)
-        self.setObjectName("TitleBar")
-        self._pressed = False
-        self._start_pos = None
-
-        self.btn_min = QtWidgets.QToolButton(self); self.btn_min.setObjectName("BtnMin")
-        self.btn_max = QtWidgets.QToolButton(self); self.btn_max.setObjectName("BtnMax")
-        self.btn_close = QtWidgets.QToolButton(self); self.btn_close.setObjectName("BtnClose")
-        for b in (self.btn_min, self.btn_max, self.btn_close):
-            b.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
-
-        self.btn_min.setText("–")
-        self.btn_max.setText("□")
-        self.btn_close.setText("×")
-
-        self.label = QtWidgets.QLabel(title, self)
-
-        lay = QtWidgets.QHBoxLayout(self)
-        lay.setContentsMargins(10, 0, 6, 0)
-        lay.setSpacing(6)
-        lay.addWidget(self.label, 1)
-        lay.addWidget(self.btn_min)
-        lay.addWidget(self.btn_max)
-        lay.addWidget(self.btn_close)
-
-        self.btn_min.clicked.connect(self._on_minimize)
-        self.btn_max.clicked.connect(self._on_max_restore)
-        self.btn_close.clicked.connect(self._on_close)
-
-    def _window(self):
-        return self.window()
-    def _on_minimize(self):
-        w = self._window()
-        if w: w.showMinimized()
-    def _on_max_restore(self):
-        w = self._window()
-        if not w: return
-        if w.isMaximized():
-            w.showNormal(); self.btn_max.setText("□")
-        else:
-            w.showMaximized(); self.btn_max.setText("❐")
-    def _on_close(self):
-        w = self._window()
-        if w: w.close()
-    def mousePressEvent(self, e: QtGui.QMouseEvent):
-        if e.button() == QtCore.Qt.LeftButton:
-            self._pressed = True
-            w = self._window()
-            if w is not None:
-                self._start_pos = e.globalPos() - w.frameGeometry().topLeft()
-            e.accept(); return
-        super().mousePressEvent(e)
-    def mouseMoveEvent(self, e: QtGui.QMouseEvent):
-        if self._pressed:
-            w = self._window()
-            if w is not None and not w.isMaximized():
-                w.move(e.globalPos() - (self._start_pos or QtCore.QPoint()))
-                e.accept(); return
-        super().mouseMoveEvent(e)
-    def mouseDoubleClickEvent(self, e: QtGui.QMouseEvent):
-        if e.button() == QtCore.Qt.LeftButton:
-            self._on_max_restore()
-            e.accept(); return
-        super().mouseDoubleClickEvent(e)
-    def mouseReleaseEvent(self, e: QtGui.QMouseEvent):
-        self._pressed = False
-        super().mouseReleaseEvent(e)
-
-
-class WrapDelegate(QtWidgets.QStyledItemDelegate):
-    """
-    Делегат для переноса длинных строк по ширине колонки (включая последовательности без пробелов).
-    """
-    def __init__(self, view, parent=None):
-        super().__init__(parent)
-        self.view = view
-        self.h_margin = 6
-        self.v_margin = 4
-
-    def _make_doc(self, option: QtWidgets.QStyleOptionViewItem, text: str, width: int):
-        doc = QtGui.QTextDocument()
-        doc.setDefaultFont(option.font)
-
-        topt = QtGui.QTextOption()
-        # Перенос внутри длинных «слов» (WrapAnywhere — цифры и буквы без пробелов тоже переносятся)
-        topt.setWrapMode(QtGui.QTextOption.WrapAnywhere)
-        doc.setDefaultTextOption(topt)
-
-        doc.setPlainText(text or "")
-        doc.setTextWidth(max(10, width))
-        return doc
-
-    def sizeHint(self, option, index):
-        opt = QtWidgets.QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        text = str(index.data(QtCore.Qt.DisplayRole) or "")
-        col_w = max(10, self.view.columnWidth(index.column()) - self.h_margin)
-        doc = self._make_doc(opt, text, col_w)
-        sz = doc.size().toSize()
-        return QtCore.QSize(col_w + self.h_margin, sz.height() + self.v_margin)
-
-    def paint(self, painter, option, index):
-        opt = QtWidgets.QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        opt.textElideMode = QtCore.Qt.ElideNone
-
-        rect = opt.rect.adjusted(self.h_margin // 2, self.v_margin // 2, -self.h_margin // 2, -self.v_margin // 2)
-
-        # Фон выделения
-        if opt.state & QtWidgets.QStyle.State_Selected:
-            painter.save()
-            painter.fillRect(opt.rect, opt.palette.highlight())
-            painter.restore()
-
-        text = str(index.data(QtCore.Qt.DisplayRole) or "")
-        doc = self._make_doc(opt, text, max(10, rect.width()))
-
-        # Цвет текста при выделении
-        if opt.state & QtWidgets.QStyle.State_Selected:
-            clr = opt.palette.highlightedText().color()
-            cursor = QtGui.QTextCursor(doc)
-            cursor.select(QtGui.QTextCursor.Document)
-            fmt = QtGui.QTextCharFormat()
-            fmt.setForeground(QtGui.QBrush(clr))
-            cursor.mergeCharFormat(fmt)
-
-        painter.save()
-        painter.translate(rect.topLeft())
-        doc.drawContents(painter, QtCore.QRectF(0, 0, rect.width(), rect.height()))
-        painter.restore()
-
         # Фокусная рамка
         if opt.state & QtWidgets.QStyle.State_HasFocus:
             opt_focus = QtWidgets.QStyleOptionFocusRect()
             opt_focus.rect = opt.rect
             opt_focus.state = QtWidgets.QStyle.State_KeyboardFocusChange | QtWidgets.QStyle.State_Item
             opt_focus.backgroundColor = opt.palette.highlight().color()
-            style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
             style.drawPrimitive(QtWidgets.QStyle.PE_FrameFocusRect, opt_focus, painter, opt.widget)
+
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -285,20 +309,45 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__(parent)
         self.repo = repo
         self.setWindowTitle("Планировщик задач")
-        self.resize(900, 550)
+        self.resize(1000, 700)
 
-        # Настройки (для сохранения ширин колонок и геометрии окна/состояния колонок)
         self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
 
-        # Модель
-        self.model = TaskTableModel(repo, self)
-        self.model.load()
+        # Действия
+        self.add_act = QtWidgets.QAction("Добавить", self)
+        self.edit_act = QtWidgets.QAction("Редактировать", self)
+        self.del_act = QtWidgets.QAction("Удалить", self)
+        self.refresh_act = QtWidgets.QAction("Обновить", self)
+        self.act_help = QtWidgets.QAction("Справка", self)
+        self.act_about = QtWidgets.QAction("О программе", self)
+        
+        self.act_help.setShortcut("F1")  # по желанию
 
-        # Прокси (поиск + режим фильтра)
-        # Важно: FilterProxy должен быть вашим кастомным классом с методом setMode
+        self.add_act.setShortcut("F2")
+        self.edit_act.setShortcut("F3")
+        self.del_act.setShortcut("Delete")
+        self.refresh_act.setShortcut("F5")
+
+        self.add_act.triggered.connect(self.add_task)
+        self.edit_act.triggered.connect(self.edit_task)
+        self.del_act.triggered.connect(self.delete_task)
+        self.refresh_act.triggered.connect(self.refresh)
+        self.act_help.triggered.connect(self.show_help)
+        self.act_about.triggered.connect(self.show_about)
+
+        # Переключатель темы (если используете)
+        self.act_dark = QtWidgets.QAction("Тёмная тема", self)
+        self.act_dark.setCheckable(True)
+        cur_theme = str(self.settings.value("theme", "dark"))
+        self.act_dark.setChecked(cur_theme == "dark")
+        self.act_dark.toggled.connect(self.on_toggle_theme)
+
+        # Модель и прокси (создаём до загрузки данных, чтобы методы могли использовать proxy)
+        self.model = TaskTableModel(repo, self)
         self.proxy = FilterProxy(self.model, self)
         self.proxy.setSourceModel(self.model)
         self.proxy.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        self.proxy.setDynamicSortFilter(True)
 
         # Таблица
         self.view = QtWidgets.QTableView()
@@ -308,72 +357,56 @@ class MainWindow(QtWidgets.QMainWindow):
         self.view.setSortingEnabled(True)
         self.view.setWordWrap(True)
         self.view.setTextElideMode(QtCore.Qt.ElideNone)
-        self.view.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
-        # Контекстное меню для таблицы
         self.view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self.show_context_menu)
+        self.view.doubleClicked.connect(lambda idx: self.edit_task())
 
-        # Заголовки
         hdr = self.view.horizontalHeader()
         hdr.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
-
         vhdr = self.view.verticalHeader()
         vhdr.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
         vhdr.setDefaultAlignment(QtCore.Qt.AlignCenter)
 
-        # Делегат для многострочного описания — ВАЖНО: это должно быть в init
+        # Делегат для описания (WrapDelegate уже объявлен выше)
         self.desc_col = getattr(self.model, "column_index", lambda k: -1)("description")
         if isinstance(self.desc_col, int) and self.desc_col >= 0:
-            # Убедитесь, что класс WrapDelegate определён и импортирован
             self.view.setItemDelegateForColumn(self.desc_col, WrapDelegate(self.view, self))
-            # чтобы высота строк обновлялась при ресайзе колонки
             hdr.sectionResized.connect(self._on_section_resized)
-        # Диагностика делегата (оставляем как у вас)
-        print("desc_col:", self.desc_col)
-        assert isinstance(self.desc_col, int) and self.desc_col >= 0, "Колонка 'description' не найдена"
-        print("delegate set:", isinstance(self.view.itemDelegateForColumn(self.desc_col), WrapDelegate))
 
-        # Восстановим ширины колонок (если сохранены) — делать после создания view и модели
-        state = self.settings.value("header_state")
-        if state is not None:
-            try:
-                hdr.restoreState(state)
-            except Exception:
-                pass
+        # Компоновка центральной части: поиск + фильтр + таблица
+        self.search_edit = QtWidgets.QLineEdit()
+        self.search_edit.setPlaceholderText("Поиск по названию...")
+        self.search_edit.textChanged.connect(self.apply_search)
 
-        # Сортировка по сроку
-        col_due = getattr(self.model, "column_index", lambda k: 1)("due_date")
-        self.view.sortByColumn(
-            col_due if isinstance(col_due, int) and col_due >= 0 else 1,
-            QtCore.Qt.AscendingOrder
-        )
+        self.filter_combo = QtWidgets.QComboBox()
+        self.filter_combo.addItems(["Все", "Открытые", "Просроченные", "На сегодня", "Выполненные"])
+        self.filter_combo.currentIndexChanged.connect(self.apply_filter)
 
-        # ДЕЙСТВИЯ (используются в меню-кнопке)
-        self.add_act = QtWidgets.QAction("Добавить", self)
-        self.edit_act = QtWidgets.QAction("Редактировать", self)
-        self.del_act = QtWidgets.QAction("Удалить", self)
-        self.refresh_act = QtWidgets.QAction("Обновить", self)
+        top = QtWidgets.QHBoxLayout()
+        top.addWidget(self.search_edit)
+        top.addWidget(self.filter_combo)
 
-        self.add_act.triggered.connect(self.add_task)
-        self.edit_act.triggered.connect(self.edit_task)
-        self.del_act.triggered.connect(self.delete_task)
-        self.refresh_act.triggered.connect(self.refresh)
+        central = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(central)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+        layout.addLayout(top)
+        layout.addWidget(self.view)
+        self.setCentralWidget(central)
 
-        # Кнопка "О программе"
-        self.act_about = QtWidgets.QAction("О программе", self)
-        self.act_about.setToolTip("Информация о программе")
-        self.act_about.triggered.connect(self.show_about)
+        # Тулбар с кнопкой "Меню" и переключателем темы
+        toolbar = self.findChild(QtWidgets.QToolBar, "Main")
+        if toolbar is None:
+            toolbar = self.addToolBar("Main")
+            toolbar.setObjectName("Main")
+        toolbar.setMovable(True)
+        toolbar.setFloatable(True)
+        toolbar.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
+        toolbar.clear()
 
-        # Действие переключения темы
-        self.act_dark = QtWidgets.QAction("Тёмная тема", self)
-        self.act_dark.setCheckable(True)
-        cur_theme = self.settings.value("theme", "dark")
-        self.act_dark.setChecked(str(cur_theme) == "dark")
-        self.act_dark.toggled.connect(self.on_toggle_theme)
-
-        # КНОПКА-МЕНЮ В ТУЛБАРЕ
+        # Кнопка выпадающего меню
         self.menu_btn = QtWidgets.QToolButton(self)
-        self.menu_btn.setText("Меню  ")
+        self.menu_btn.setText("Меню   ")
         self.menu_btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
         self.menu_btn.setPopupMode(QtWidgets.QToolButton.InstantPopup)
 
@@ -385,184 +418,137 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_menu.addSeparator()
         self.main_menu.addAction(self.refresh_act)
         self.main_menu.addSeparator()
-        # Подменю "Колонки" с чекбоксами
-        self.columns_menu = self.main_menu.addMenu("Колонки")
-        self._build_columns_menu(self.columns_menu)
+
+
+        # Подменю "Столбцы"
+        self.columns_menu = self.main_menu.addMenu("Столбцы")
+        self._column_actions = {}
+        self._rebuild_columns_menu()  # создаём пункт "Столбцы" с чекбоксами
+        self.main_menu.addSeparator()
+        self.main_menu.addAction(self.act_help)
+        self.main_menu.addSeparator()
+        self.main_menu.addAction(self.act_about)
 
         self.menu_btn.setMenu(self.main_menu)
-
-        # ТУЛБАР (один-единственный)
-        toolbar = self.findChild(QtWidgets.QToolBar, "Main")
-        if toolbar is None:
-            toolbar = self.addToolBar("Main")
-            toolbar.setObjectName("Main")
-        toolbar.setMovable(True)
-        toolbar.setFloatable(True)
-        toolbar.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
-
-        # ВАЖНО: добавляем одну кнопку-меню, затем доп. действия справа.
         toolbar.addWidget(self.menu_btn)
-        toolbar.addSeparator()
-        toolbar.addAction(self.act_about)
         toolbar.addSeparator()
         toolbar.addAction(self.act_dark)
 
-        # Поиск
-        self.search_edit = QtWidgets.QLineEdit()
-        self.search_edit.setPlaceholderText("Поиск по названию...")
-        self.search_edit.textChanged.connect(self.apply_search)
+        # Загрузим данные после настройки UI
+        self.model.load()
 
-        # Фильтры
-        self.filter_combo = QtWidgets.QComboBox()
-        self.filter_combo.addItems(["Все", "Открытые", "Просроченные", "На сегодня", "Выполненные"])
-        self.filter_combo.currentIndexChanged.connect(self.apply_filter)
+        # Восстановление состояния колонок (ширины/порядок/видимость) и сортировки
+        state = self.settings.value("header_state", type=QtCore.QByteArray)
+        if isinstance(state, QtCore.QByteArray) and not state.isEmpty():
+            try:
+                hdr.restoreState(state)
+            except Exception:
+                pass
 
-        # Компоновка
-        top = QtWidgets.QHBoxLayout()
-        top.addWidget(self.search_edit)
-        top.addWidget(self.filter_combo)
+        # Дефолтная сортировка по сроку
+        col_due = getattr(self.model, "column_index", lambda k: 1)("due_date")
+        if not isinstance(col_due, int) or col_due < 0:
+            col_due = 1
+        self.view.sortByColumn(col_due, QtCore.Qt.AscendingOrder)
+        try:
+            hdr.setSortIndicator(col_due, QtCore.Qt.AscendingOrder)
+            hdr.setSortIndicatorShown(True)
+        except Exception:
+            pass
 
-        central = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(central)
-        layout.addLayout(top)
-        layout.addWidget(self.view)
-        self.setCentralWidget(central)
+        # Синхронизируем чекбоксы с текущей видимостью секций
+        self._sync_column_checks()
 
-        # Инициализация поиска/фильтра с восстановлением значений
+        # Инициализация поиска/фильтра
         last_query = self.settings.value("search_query", "")
         self.search_edit.setText(str(last_query))
-        last_filter = self.settings.value("filter_mode", "Все")
-        ix = self.filter_combo.findText(str(last_filter))
+        last_filter = str(self.settings.value("filter_mode", "Все"))
+        ix = self.filter_combo.findText(last_filter)
         if ix >= 0:
             self.filter_combo.setCurrentIndex(ix)
-        # Явно применим (если ничего не изменилось, всё равно актуализирует прокси)
         self.apply_search(self.search_edit.text())
         self.apply_filter()
 
-        # Подгон высоты строк
         self.view.resizeRowsToContents()
 
-        # Двойной клик — редактирование
-        self.view.doubleClicked.connect(lambda idx: self.edit_task())
+        # Применение темы на старте
+        app = QtWidgets.QApplication.instance()
+        if app:
+            if cur_theme == "dark":
+                try:
+                    enable_dark_theme(app)
+                except Exception:
+                    pass
+            else:
+                try:
+                    enable_light_theme(app)
+                except Exception:
+                    pass
 
-        # шорткаты
-        self.add_act.setShortcut("Ctrl+N")
-        self.edit_act.setShortcut("Ctrl+Return")
-        self.del_act.setShortcut("Delete")
-        self.refresh_act.setShortcut("F5")
+    # ===== Меню "Столбцы" и сохранение состояния =====
+    def _save_header_state(self):
+        try:
+            hdr_state = self.view.horizontalHeader().saveState()
+            self.settings.setValue("header_state", hdr_state)
+        except Exception:
+            pass
 
-        # Применение темы через окно-обёртку (если есть)
-        mode = str(self.settings.value("theme", "dark"))
-        w = self.window()
-        if hasattr(w, "apply_theme"):
-            w.apply_theme(mode)
+    def _rebuild_columns_menu(self):
+        self.columns_menu.clear()
+        hdr = self.view.horizontalHeader()
+        self._column_actions = {}
 
-    # обработчик пересчёта высоты — ДОЛЖЕН быть отдельным методом
+        for col in range(self.model.columnCount()):
+            name = self.model.headerData(col, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole)
+            text = str(name or f"Колонка {col + 1}")
+            act = QtWidgets.QAction(text, self, checkable=True)
+            act.setChecked(not hdr.isSectionHidden(col))
+
+            def on_toggled(checked, c=col):
+                hdr.setSectionHidden(c, not checked)
+                # При изменении видимости — сохраняем состояние
+                self._save_header_state()
+
+            act.toggled.connect(on_toggled)
+            self.columns_menu.addAction(act)
+            self._column_actions[col] = act
+
+        # Синхронизация при открытии меню
+        def sync_checks():
+            self._sync_column_checks()
+        self.columns_menu.aboutToShow.connect(sync_checks)
+
+    def _sync_column_checks(self):
+        hdr = self.view.horizontalHeader()
+        for col, act in list(self._column_actions.items()):
+            vis = not hdr.isSectionHidden(col)
+            # избегаем лишних сигналов
+            act.blockSignals(True)
+            act.setChecked(vis)
+            act.blockSignals(False)
+
+    # ===== Служебные методы =====
+    def on_toggle_theme(self, checked):
+        app = QtWidgets.QApplication.instance()
+        if not app:
+            return
+        try:
+            if checked:
+                enable_dark_theme(app)
+                self.settings.setValue("theme", "dark")
+            else:
+                enable_light_theme(app)
+                self.settings.setValue("theme", "light")
+        except Exception:
+            pass
+
     def _on_section_resized(self, logicalIndex, oldSize, newSize):
         if isinstance(self.desc_col, int) and self.desc_col >= 0 and logicalIndex == self.desc_col:
             self.view.resizeRowsToContents()
 
-    def _build_columns_menu(self, menu: QtWidgets.QMenu):
-        # Построение меню "Колонки" с чекбоксами, применение сохранённого состояния
-        menu.clear()
-        view = self.view
-        model = self.model
-        if view is None or model is None:
-            return
-
-        settings = self.settings
-        val = settings.value("columns_hidden", None)
-        hidden_map = {}
-
-        # Попытки интерпретации сохранённого значения
-        try:
-            if val is None:
-                hidden_map = {}
-            elif isinstance(val, dict):
-                hidden_map = {str(k): bool(v) for k, v in val.items()}
-            elif isinstance(val, (bytes, bytearray)):
-                import json
-                hidden_map = json.loads(val.decode("utf-8"))
-            elif isinstance(val, QtCore.QByteArray):
-                import json
-                hidden_map = json.loads(bytes(val).decode("utf-8"))
-            elif isinstance(val, str):
-                import json
-                hidden_map = json.loads(val)
-            else:
-                s = str(val)
-                try:
-                    import json
-                    hidden_map = json.loads(s)
-                except Exception:
-                    hidden_map = {}
-        except Exception:
-            hidden_map = {}
-
-        # Применим видимость и создадим пункты меню
-        col_count = model.columnCount()
-        for col in range(col_count):
-            header = model.headerData(col, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole)
-            text = str(header) if header is not None else f"Колонка {col + 1}"
-
-            hidden = bool(hidden_map.get(str(col), view.isColumnHidden(col)))
-            view.setColumnHidden(col, hidden)
-
-            act = QtWidgets.QAction(text, menu)
-            act.setCheckable(True)
-            act.setChecked(not hidden)
-
-            def on_toggled(checked, c=col):
-                self.view.setColumnHidden(c, not checked)
-                self._save_columns_state()
-
-            act.toggled.connect(on_toggled)
-            menu.addAction(act)
-
-        # На всякий случай пересохраним в нормальном формате (JSON-строка)
-        self._save_columns_state()
-
-    def _save_columns_state(self):
-        # Сохранение текущего состояния видимости колонок
-        view = self.view
-        model = self.model
-        if view is None or model is None:
-            return
-        col_count = model.columnCount()
-        hidden_map = {}
-        for col in range(col_count):
-            hidden_map[str(col)] = view.isColumnHidden(col)
-
-        try:
-            import json
-            self.settings.setValue("columns_hidden", json.dumps(hidden_map))
-        except Exception:
-            self.settings.setValue("columns_hidden", hidden_map)
-
-    def on_toggle_theme(self, checked):
-        # меняем тему через окно-обёртку (FramelessWindow.apply_theme)
-        w = self.window()
-        if checked:
-            # тёмная тема
-            if hasattr(w, "apply_theme"):
-                w.apply_theme("dark")
-            self.settings.setValue("theme", "dark")
-        else:
-            # светлая тема
-            if hasattr(w, "apply_theme"):
-                w.apply_theme("light")
-            self.settings.setValue("theme", "light")
-
-        # обновим шапку (если кастомная TitleBar умеет подстраиваться)
-        if hasattr(w, "titlebar") and hasattr(w.titlebar, "update_theme"):
-            w.titlebar.update_theme()
-
     def closeEvent(self, e):
         try:
-            hdr_state = self.view.horizontalHeader().saveState()
-            self.settings.setValue("header_state", hdr_state)
-            # Если нужно сохранять геометрию окна, раскомментируйте:
-            # self.settings.setValue("window_geometry", self.saveGeometry())
+            self._save_header_state()
         finally:
             super().closeEvent(e)
 
@@ -578,86 +564,25 @@ class MainWindow(QtWidgets.QMainWindow):
         row = self.source_row(idx)
         return self.model.rows[row] if row is not None else None
 
+    # ===== Действия =====
     def add_task(self):
-        dlg = TaskEditDialog(self)
+        dlg = TaskDialog(self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             title, desc, due, completed, priority = dlg.get_data()
-
-            # Проверка названия
-            if not title.strip():
-                QtWidgets.QMessageBox.warning(self, "Внимание", "Название не может быть пустым.")
-                return
-
-            # Проверка срока (yyyy-MM-dd) и валидности даты
-            if not due or not isinstance(due, str):
-                QtWidgets.QMessageBox.warning(self, "Внимание", "Укажите срок выполнения в формате yyyy-MM-dd.")
-                return
-
-            qd = QtCore.QDate.fromString(due, "yyyy-MM-dd")
-            if not qd.isValid():
-                QtWidgets.QMessageBox.warning(self, "Внимание",
-                    f"Дата '{due}' некорректна. Ожидается формат yyyy-MM-dd (например, {QtCore.QDate.currentDate().toString('yyyy-MM-dd')})."
-                )
-                return
-
-            # Дополнительно: если дата в прошлом — спросим подтверждение
-            today = QtCore.QDate.currentDate()
-            if qd < today:
-                res = QtWidgets.QMessageBox.question(
-                    self, "Просроченный срок",
-                    "Указан срок в прошлом. Всё равно создать задачу?",
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                    QtWidgets.QMessageBox.No
-                )
-                if res != QtWidgets.QMessageBox.Yes:
-                    return
-
-            # Создание задачи с поддержкой разных сигнатур репозитория
-            try:
-                # пробуем именованные аргументы
-                self.repo.add_task(
-                    title=title,
-                    description=desc,
-                    due_date=due,
-                    completed=completed,
-                    priority=priority
-                )
-            except TypeError:
-                # если репозиторий ожидает позиционные аргументы
-                try:
-                    self.repo.add_task(title, desc, due, completed, priority)
-                except TypeError:
-                    # самый старый вариант (без completed)
-                    self.repo.add_task(title, desc, due, priority)
-
-            self.refresh()
+            if title and due:
+                self.repo.add_task(title, desc, due, priority)
+                self.refresh()
 
     def edit_task(self):
         task = self.selected_task()
         if not task:
             return
-        dlg = TaskEditDialog(self, task=task)
+        dlg = TaskDialog(self, task=task)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             title, desc, due, completed, priority = dlg.get_data()
-            # поддержка dict и tuple
             task_id = task["id"] if isinstance(task, dict) else task[0]
-            ok = False
-            try:
-                ok = self.repo.update_task(
-                    task_id,
-                    title=title,
-                    description=desc,
-                    due_date=due,
-                    completed=completed,
-                    priority=priority,
-                )
-            except TypeError:
-                # если репозиторий ожидает позиционные аргументы
-                self.repo.update_task(task_id, title, desc, due, completed, priority)
-                ok = True
-            finally:
-                if ok:
-                    self.refresh()
+            self.repo.update_task(task_id, title, desc, due, completed, priority)
+            self.refresh()
 
     def delete_task(self):
         task = self.selected_task()
@@ -682,24 +607,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def refresh(self):
         self.model.load()
+        # Сохраняем текущий текст поиска и фильтр
         self.apply_search(self.search_edit.text())
         self.apply_filter()
+        # Сортировку отдельно не трогаем — её поддерживает dynamicSortFilter + индикатор уже выставлен
         self.view.resizeRowsToContents()
-        # Пересоберём меню колонок на случай изменения состава колонок
-        self._build_columns_menu(self.columns_menu)
 
-    def show_about(self):
-        QtWidgets.QMessageBox.about(
-            self,
-            "О программе",
-            "Программа для планирования задач\n\n© Buchenkov Igor\n\n sarovchanin@internet.ru\n\n                2025"
-        )
-
+    # ===== Контекстное меню таблицы =====
     def show_context_menu(self, pos):
         index = self.view.indexAt(pos)
         has_sel = index.isValid()
         if has_sel:
-            # Выделим строку под курсором, чтобы команды работали по ней
             self.view.selectRow(index.row())
 
         menu = QtWidgets.QMenu(self)
@@ -715,13 +633,14 @@ class MainWindow(QtWidgets.QMainWindow):
         act_del.setEnabled(has_sel)
         act_del.triggered.connect(self.delete_task)
 
-        # Переключатель “Выполнено”
+        # Подменю "Столбцы"
+        menu.addSeparator()
+        menu.addMenu(self.columns_menu)
+
         task = self.selected_task() if has_sel else None
         if task:
             completed = bool(task.get("completed") if isinstance(task, dict) else task[5])
             toggle_text = "Отметить выполненной" if not completed else "Снять отметку выполнения"
-            menu.addSeparator()
-            act_toggle = menu.addAction(toggle_text)
 
             def toggle_completed():
                 task_id = task["id"] if isinstance(task, dict) else task[0]
@@ -732,166 +651,234 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.repo.update_task(task_id, title, desc, due, not completed, priority)
                 self.refresh()
 
-            act_toggle.triggered.connect(toggle_completed)
+            menu.addSeparator()
+            menu.addAction(toggle_text, toggle_completed)
 
         menu.addSeparator()
-        act_refresh = menu.addAction("Обновить")
-        act_refresh.triggered.connect(self.refresh)
+        menu.addAction("Обновить", self.refresh)
 
-        # Показать в глобальных координатах
         global_pos = self.view.viewport().mapToGlobal(pos)
         menu.exec_(global_pos)
 
+    def show_about(self):
+        QtWidgets.QMessageBox.about(
+            self,
+            "О программе",
+            "PlanBoard\n\n"
+            "Простой планировщик задач.\n"
+            "Версия: 1.2.0\n"
+            "Автор: Бученков Игорь"
+        )
+
+    def show_help(self):
+        # Короткая справка + список горячих клавиш
+        text = (
+            "Справка\n\n"
+            "PlanBoard — простой планировщик задач. Используйте поиск и фильтры "
+            "для быстрого нахождения задач. Двойной клик — редактирование.\n\n"
+            "Горячие клавиши:\n"
+            "  F1 — Открыть справку\n"
+            "  F2 — Добавить задачу\n"
+            "  F3 — Редактировать выбранную\n"
+            "  Delete — Удалить выбранную\n"
+            "  F5 — Обновить список\n"
+            
+        )
+        QtWidgets.QMessageBox.information(self, "Справка", text)
+
 
 class FramelessWindow(QtWidgets.QWidget):
-    RESIZE_MARGIN = 8  # ширина зоны захвата по краям
+    RESIZE_MARGIN = 8
 
     def __init__(self, repo, parent=None):
         super().__init__(parent)
         self.setObjectName("FramelessWindow")
-        # Без системной рамки + прозрачный фон для тени
         self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
 
-        # Настройки окна
+        # Настройки
         self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
 
-        # Корневой кадр с тенью и скруглениями
-        self.frame = QtWidgets.QFrame(self)
+        # Внешняя рамка
+        self.frame = QtWidgets.QFrame()
         self.frame.setObjectName("frameRoot")
-        self.frame.setStyleSheet("QFrame#frameRoot { background: palette(base); border-radius: 10px; }")
-
+        self.frame.setStyleSheet("""
+            QFrame#frameRoot {
+                background: palette(base);
+                border-radius: 10px;
+            }
+        """)
         shadow = QtWidgets.QGraphicsDropShadowEffect(self)
         shadow.setOffset(0, 8)
         shadow.setBlurRadius(24)
         shadow.setColor(QtGui.QColor(0, 0, 0, 90))
         self.frame.setGraphicsEffect(shadow)
 
-        # Шапка (TitleBar должен быть определён в модуле)
+        # Шапка
         self.titlebar = TitleBar(self, title="Планировщик задач")
 
-        # Контент — ваш MainWindow
+        # Контент
         self.content = MainWindow(repo, parent=self.frame)
-        self.content.setObjectName("MainWindowContent")
-        # Не отдельное окно, а виджет внутри frame
         self.content.setWindowFlags(QtCore.Qt.Widget)
         self.content.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
-        # Синхронизация заголовка из контента (если внутри меняется windowTitle)
-        try:
-            self.content.windowTitleChanged.connect(self._sync_title)
-        except Exception:
-            pass
-
-        # Компоновка: внешний отступ под тень и внутренняя рамка 1px
+        # Компоновка
         root = QtWidgets.QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 18)  # место для тени
+        root.setContentsMargins(18, 18, 18, 18)  # отступ под тень
         root.setSpacing(0)
         root.addWidget(self.frame)
 
-        fl = QtWidgets.QVBoxLayout(self.frame)
-        fl.setContentsMargins(1, 1, 1, 1)
-        fl.setSpacing(0)
-        fl.addWidget(self.titlebar)
-        fl.addWidget(self.content, 1)
+        content_layout = QtWidgets.QVBoxLayout(self.frame)
+        content_layout.setContentsMargins(1, 1, 1, 1)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self.titlebar)
+        content_layout.addWidget(self.content, 1)
 
-        # Грип изменения размера (правый нижний угол)
+        # QSizeGrip
         self.size_grip = QtWidgets.QSizeGrip(self.frame)
         self.size_grip.setFixedSize(14, 14)
         corner = QtWidgets.QHBoxLayout()
         corner.setContentsMargins(0, 0, 0, 0)
         corner.addStretch(1)
         corner.addWidget(self.size_grip, 0, QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom)
-        fl.addLayout(corner)
+        content_layout.addLayout(corner)
 
-        # Восстановление геометрии и состояния
-        geom = self.settings.value("window_geometry")
-        if geom is not None:
+        # Двойной клик по шапке — max/restore
+        self.titlebar.mouseDoubleClickEvent = self._titlebar_double_click
+
+        # Последняя "нормальная" геометрия (не максимизированное окно)
+        self._last_normal_geom = None
+
+        # Восстановим после того, как виджет будет показан (даёт более стабильный результат с Frameless)
+        QtCore.QTimer.singleShot(0, self._restore_window_state)
+
+        # Сохранение при выходе
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
             try:
-                self.restoreGeometry(geom)
+                app.aboutToQuit.disconnect(self._save_window_state)
             except Exception:
                 pass
-        else:
-            self.resize(1000, 700)
+            app.aboutToQuit.connect(self._save_window_state)
 
-        win_state = int(self.settings.value("window_state", int(QtCore.Qt.WindowNoState)))
+    def _titlebar_double_click(self, e):
+        if e.button() == QtCore.Qt.LeftButton:
+            if self.isMaximized():
+                self.showNormal()
+            else:
+                self.showMaximized()
+
+    # Запомним нормальную геометрию при изменении состояния
+    def changeEvent(self, event):
+        if event.type() == QtCore.QEvent.WindowStateChange:
+            if not self.isMaximized() and not self.isMinimized():
+                self._last_normal_geom = self.geometry()
+        super().changeEvent(event)
+
+    def moveEvent(self, event):
+        # Обновлять нормальную геометрию в процессе перемещения в нормальном состоянии
+        if not self.isMaximized() and not self.isMinimized():
+            self._last_normal_geom = self.geometry()
+        super().moveEvent(event)
+
+    def resizeEvent(self, event):
+        # Обновлять нормальную геометрию при изменении размера в нормальном состоянии
+        if not self.isMaximized() and not self.isMinimized():
+            self._last_normal_geom = self.geometry()
+        super().resizeEvent(event)
+
+    def _restore_window_state(self):
+        # Состояние (максимизировано или нет)
+        win_state = self.settings.value("window_state", int(QtCore.Qt.WindowNoState))
+        try:
+            win_state = int(win_state)
+        except Exception:
+            win_state = int(QtCore.Qt.WindowNoState)
+
+        # Геометрия (последняя нормальная)
+        geom_bytes = self.settings.value("window_geometry", None)
+        rect = None
+        if isinstance(geom_bytes, QtCore.QByteArray) and not geom_bytes.isEmpty():
+            # Попытка через restoreGeometry — иногда с Frameless требуется сначала showNormal
+            try:
+                self.restoreGeometry(geom_bytes)
+                self._last_normal_geom = self.geometry()
+            except Exception:
+                pass
+
+        # Если restoreGeometry не дал результата, попробуем прямой QRect
+        if self._last_normal_geom is None:
+            rect = self.settings.value("window_rect", None)
+            if isinstance(rect, QtCore.QRect):
+                self.setGeometry(rect)
+                self._last_normal_geom = rect
+
+        # Если нет сохранённой геометрии — центрируем на экране
+        if self._last_normal_geom is None:
+            screen = QtWidgets.QApplication.primaryScreen()
+            ag = screen.availableGeometry() if screen else QtCore.QRect(0, 0, 1280, 800)
+            w, h = 900, 550
+            x = ag.x() + (ag.width() - w) // 2
+            y = ag.y() + (ag.height() - h) // 2
+            self.setGeometry(x, y, w, h)
+            self._last_normal_geom = self.geometry()
+
+        # Применим состояние окна
         if win_state == int(QtCore.Qt.WindowMaximized):
             self.showMaximized()
+        else:
+            self.showNormal()
 
-        # Применение сохранённой темы
-        mode = str(self.settings.value("theme", "dark"))
-        self.apply_theme(mode)
+        # Безопасность: если окно оказалось вне экрана (смена мониторов/масштаба) — подвинем внутрь
+        self._ensure_inside_available_area()
 
-    def _sync_title(self, text: str):
-        # Обновляем текст в кастомной шапке, если контент меняет windowTitle
-        if hasattr(self.titlebar, "label") and isinstance(self.titlebar.label, QtWidgets.QLabel):
-            self.titlebar.label.setText(text or "Планировщик задач")
+    def _ensure_inside_available_area(self):
+        screen = QtWidgets.QApplication.screenAt(self.frameGeometry().center())
+        ag = screen.availableGeometry() if screen else QtWidgets.QApplication.primaryScreen().availableGeometry()
+        r = self.geometry()
+        new_r = QtCore.QRect(r)
+        if r.right() < ag.left() or r.left() > ag.right() or r.bottom() < ag.top() or r.top() > ag.bottom():
+            # Полностью вне экрана — центрируем
+            w, h = r.width(), r.height()
+            x = ag.x() + (ag.width() - w) // 2
+            y = ag.y() + (ag.height() - h) // 2
+            new_r = QtCore.QRect(x, y, w, h)
+        else:
+            # Корректируем частично выходящую геометрию
+            if new_r.left() < ag.left():
+                new_r.moveLeft(ag.left())
+            if new_r.top() < ag.top():
+                new_r.moveTop(ag.top())
+            if new_r.right() > ag.right():
+                new_r.moveRight(ag.right())
+            if new_r.bottom() > ag.bottom():
+                new_r.moveBottom(ag.bottom())
+        if new_r != r:
+            self.setGeometry(new_r)
+            self._last_normal_geom = new_r
 
-    def apply_theme(self, mode: str):
+    def _save_window_state(self):
         try:
-            self.settings.setValue("theme", mode)  # key "theme" совпадает с MainWindow
-        except Exception:
-            pass
-
-        # Два лёгких пресета темы
-        dark = """
-        * { outline: none; }
-        QWidget { color: #e6e6e6; background: #2b2b2b; }
-        QFrame#frameRoot { background: #2f2f2f; border-radius: 10px; }
-        QToolButton { color: #e6e6e6; background: transparent; }
-        QToolButton:hover { background: rgba(255,255,255,0.08); }
-        QMenu { background: #333; color: #eee; border: 1px solid #444; }
-        QMenu::item:selected { background: #444; }
-        QTableView { background: #2f2f2f; gridline-color: #444; }
-        QHeaderView::section { background: #3a3a3a; color: #ddd; border: 0px; padding: 6px; }
-        QScrollBar:vertical { background: #2f2f2f; width: 12px; margin: 0; }
-        QScrollBar::handle:vertical { background: #555; min-height: 20px; border-radius: 6px; }
-        QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
-        """
-        light = """
-        * { outline: none; }
-        QWidget { color: #232323; background: #f2f2f2; }
-        QFrame#frameRoot { background: palette(base); border-radius: 10px; }
-        QToolButton { color: #232323; background: transparent; }
-        QToolButton:hover { background: rgba(0,0,0,0.08); }
-        QMenu { background: #fff; color: #222; border: 1px solid #ccc; }
-        QMenu::item:selected { background: #e6e6e6; }
-        QTableView { background: palette(base); gridline-color: #ccc; }
-        QHeaderView::section { background: #eaeaea; color: #333; border: 0px; padding: 6px; }
-        QScrollBar:vertical { background: palette(base); width: 12px; margin: 0; }
-        QScrollBar::handle:vertical { background: #bbb; min-height: 20px; border-radius: 6px; }
-        QScrollBar:add-line, QScrollBar:sub-line { height: 0; }
-        """
-
-        app = QtWidgets.QApplication.instance()
-        if app:
-            app.setStyleSheet(dark if mode == "dark" else light)
-
-        # Небольшой стиль заголовка
-        if hasattr(self.titlebar, "label") and isinstance(self.titlebar.label, QtWidgets.QLabel):
-            self.titlebar.label.setStyleSheet("font-weight: 600;")
-
-    def closeEvent(self, e: QtGui.QCloseEvent):
-        # Сохраняем геометрию и состояние
-        try:
+            # Сохраняем QByteArray от saveGeometry — универсально
             self.settings.setValue("window_geometry", self.saveGeometry())
+            # Плюс дубль в виде QRect для надёжности (особенно при Frameless)
+            normal_rect = self._last_normal_geom if self._last_normal_geom else self.geometry()
+            self.settings.setValue("window_rect", normal_rect)
+            # Состояние
             self.settings.setValue(
                 "window_state",
                 int(QtCore.Qt.WindowMaximized if self.isMaximized() else QtCore.Qt.WindowNoState)
             )
+        except Exception:
+            pass
+
+    def closeEvent(self, e):
+        try:
+            self._save_window_state()
         finally:
             super().closeEvent(e)
 
-    def changeEvent(self, e: QtCore.QEvent):
-        # Фикс артефактов: при максимизации отключаем прозрачность
-        if e.type() == QtCore.QEvent.WindowStateChange:
-            if self.isMaximized():
-                self.setAttribute(QtCore.Qt.WA_TranslucentBackground, False)
-            else:
-                self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
-        super().changeEvent(e)
-
-    # Ресайз по всем краям/углам на Windows
+    # Windows: расширенный хит-тест по видимой рамке (удобный ресайз за все края/углы)
     def nativeEvent(self, eventType, message):
         if sys.platform != "win32":
             return False, 0
@@ -919,23 +906,33 @@ class FramelessWindow(QtWidgets.QWidget):
             ptr_val = message.int() if hasattr(message, "int") else int(message)
             msg = MSG.from_address(ptr_val)
 
-            if msg.message != WM_NCHITTEST or self.isMaximized():
+            if msg.message != WM_NCHITTEST:
+                return False, 0
+            if self.isMaximized():
                 return False, 0
 
-            # Координаты курсора
+            # Позиция курсора
             pos = QtGui.QCursor.pos()
-            # Геометрия видимой рамки (frameRoot) в глобальных координатах
+            x, y = pos.x(), pos.y()
+
+            # Внешний прямоугольник окна
+            win_rect = self.frameGeometry()
+            wl, wr = win_rect.left(), win_rect.right()
+            wt, wb = win_rect.top(), win_rect.bottom()
+
+            # Видимая рамка (frameRoot)
             frame_rect = self.frame.geometry()
             frame_top_left = self.frame.mapToGlobal(QtCore.QPoint(0, 0))
             fl, ft = frame_top_left.x(), frame_top_left.y()
             fr, fb = fl + frame_rect.width() - 1, ft + frame_rect.height() - 1
 
-            m = max(10, getattr(self, "RESIZE_MARGIN", 8))  # удобная ширина зоны
+            m = max(10, getattr(self, "RESIZE_MARGIN", 8))
 
-            on_left = fl <= pos.x() <= fl + m
-            on_right = fr - m <= pos.x() <= fr
-            on_top = ft <= pos.y() <= ft + m
-            on_bottom = fb - m <= pos.y() <= fb
+            # По видимой рамке
+            on_left = fl <= x <= fl + m
+            on_right = fr - m <= x <= fr
+            on_top = ft <= y <= ft + m
+            on_bottom = fb - m <= y <= fb
 
             if on_left and on_top:
                 return True, HTTOPLEFT
@@ -954,15 +951,11 @@ class FramelessWindow(QtWidgets.QWidget):
             if on_bottom:
                 return True, HTBOTTOM
 
-            # Резервная зона по внешней границе окна, если вдруг тень мешает
-            win_rect = self.frameGeometry()
-            wl, wr = win_rect.left(), win_rect.right()
-            wt, wb = win_rect.top(), win_rect.bottom()
-
-            on_left_w = wl <= pos.x() <= wl + m
-            on_right_w = wr - m <= pos.x() <= wr
-            on_top_w = wt <= pos.y() <= wt + m
-            on_bottom_w = wb - m <= pos.y() <= wb
+            # Резерв: у самого края окна
+            on_left_w = wl <= x <= wl + m
+            on_right_w = wr - m <= x <= wr
+            on_top_w = wt <= y <= wt + m
+            on_bottom_w = wb - m <= y <= wb
 
             if on_left_w and on_top_w:
                 return True, HTTOPLEFT
@@ -984,5 +977,3 @@ class FramelessWindow(QtWidgets.QWidget):
             return False, 0
         except Exception:
             return False, 0
-
-
