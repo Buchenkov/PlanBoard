@@ -230,8 +230,6 @@ class TitleBar(QtWidgets.QWidget):
         super().mouseReleaseEvent(e)
 
 
-from PyQt5 import QtCore, QtGui, QtWidgets
-
 class WrapDelegate(QtWidgets.QStyledItemDelegate):
     """
     Делегат для переноса длинных строк по ширине колонки
@@ -303,7 +301,6 @@ class WrapDelegate(QtWidgets.QStyledItemDelegate):
             style.drawPrimitive(QtWidgets.QStyle.PE_FrameFocusRect, opt_focus, painter, opt.widget)
 
 
-
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, repo, parent=None):
         super().__init__(parent)
@@ -311,18 +308,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Планировщик задач")
         self.resize(1000, 700)
 
+        # QSettings
         self.settings = QtCore.QSettings("YourCompany", "PlanBoard")
 
-        # Действия
+        # Флаги старта/восстановления
+        self._restoring_header = False
+        self._startup_ignore_changes = True
+
+        # ===== Действия =====
         self.add_act = QtWidgets.QAction("Добавить", self)
         self.edit_act = QtWidgets.QAction("Редактировать", self)
         self.del_act = QtWidgets.QAction("Удалить", self)
         self.refresh_act = QtWidgets.QAction("Обновить", self)
         self.act_help = QtWidgets.QAction("Справка", self)
         self.act_about = QtWidgets.QAction("О программе", self)
-        
-        self.act_help.setShortcut("F1")  # по желанию
 
+        self.act_help.setShortcut("F1")
         self.add_act.setShortcut("F2")
         self.edit_act.setShortcut("F3")
         self.del_act.setShortcut("Delete")
@@ -335,22 +336,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_help.triggered.connect(self.show_help)
         self.act_about.triggered.connect(self.show_about)
 
-        # Переключатель темы (если используете)
+        # Тема приложения
         self.act_dark = QtWidgets.QAction("Тёмная тема", self)
         self.act_dark.setCheckable(True)
         cur_theme = str(self.settings.value("theme", "dark"))
         self.act_dark.setChecked(cur_theme == "dark")
         self.act_dark.toggled.connect(self.on_toggle_theme)
 
-        # Модель и прокси (создаём до загрузки данных, чтобы методы могли использовать proxy)
+        # ===== Модель и прокси =====
         self.model = TaskTableModel(repo, self)
         self.proxy = FilterProxy(self.model, self)
         self.proxy.setSourceModel(self.model)
         self.proxy.setFilterCaseSensitivity(QtCore.Qt.CaseInsensitive)
         self.proxy.setDynamicSortFilter(True)
 
-        # Таблица
+        # ===== Вид (таблица) =====
         self.view = QtWidgets.QTableView()
+        self.view.setObjectName("MainView")
         self.view.setModel(self.proxy)
         self.view.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.view.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
@@ -361,19 +363,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.view.customContextMenuRequested.connect(self.show_context_menu)
         self.view.doubleClicked.connect(lambda idx: self.edit_task())
 
+        # Заголовки
         hdr = self.view.horizontalHeader()
+        hdr.setSectionsMovable(True)
+        hdr.setStretchLastSection(False)
         hdr.setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
+
         vhdr = self.view.verticalHeader()
         vhdr.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
         vhdr.setDefaultAlignment(QtCore.Qt.AlignCenter)
 
-        # Делегат для описания (WrapDelegate уже объявлен выше)
+        # Делегат для "Описание" (если такая колонка есть)
         self.desc_col = getattr(self.model, "column_index", lambda k: -1)("description")
         if isinstance(self.desc_col, int) and self.desc_col >= 0:
             self.view.setItemDelegateForColumn(self.desc_col, WrapDelegate(self.view, self))
-            hdr.sectionResized.connect(self._on_section_resized)
 
-        # Компоновка центральной части: поиск + фильтр + таблица
+        # Верхняя панель (поиск + фильтр)
         self.search_edit = QtWidgets.QLineEdit()
         self.search_edit.setPlaceholderText("Поиск по названию...")
         self.search_edit.textChanged.connect(self.apply_search)
@@ -394,7 +399,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.view)
         self.setCentralWidget(central)
 
-        # Тулбар с кнопкой "Меню" и переключателем темы
+        # Тулбар
         toolbar = self.findChild(QtWidgets.QToolBar, "Main")
         if toolbar is None:
             toolbar = self.addToolBar("Main")
@@ -404,13 +409,11 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.setContextMenuPolicy(QtCore.Qt.PreventContextMenu)
         toolbar.clear()
 
-        # Кнопка выпадающего меню
         self.menu_btn = QtWidgets.QToolButton(self)
         self.menu_btn.setText("Меню   ")
         self.menu_btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
         self.menu_btn.setPopupMode(QtWidgets.QToolButton.InstantPopup)
 
-        # Корневое меню кнопки
         self.main_menu = QtWidgets.QMenu(self.menu_btn)
         self.main_menu.addAction(self.add_act)
         self.main_menu.addAction(self.edit_act)
@@ -419,11 +422,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_menu.addAction(self.refresh_act)
         self.main_menu.addSeparator()
 
-
         # Подменю "Столбцы"
         self.columns_menu = self.main_menu.addMenu("Столбцы")
         self._column_actions = {}
-        self._rebuild_columns_menu()  # создаём пункт "Столбцы" с чекбоксами
+
         self.main_menu.addSeparator()
         self.main_menu.addAction(self.act_help)
         self.main_menu.addSeparator()
@@ -434,32 +436,31 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.act_dark)
 
-        # Загрузим данные после настройки UI
+        # Сигналы сохранения состояния:
+        # - порядок и сортировка — единым saveState
+        hdr.sectionMoved.connect(self._save_header_state)
+        hdr.sortIndicatorChanged.connect(lambda *_: self._save_header_state())
+        # - ширина конкретной колонки — отдельные ключи
+        hdr.sectionResized.connect(self._on_section_resized_user)
+
+        # Построение меню столбцов (видимость сохраняем отдельно по колонкам)
+        self._rebuild_columns_menu()
+
+        # Загрузка данных
         self.model.load()
 
-        # Восстановление состояния колонок (ширины/порядок/видимость) и сортировки
-        state = self.settings.value("header_state", type=QtCore.QByteArray)
-        if isinstance(state, QtCore.QByteArray) and not state.isEmpty():
-            try:
-                hdr.restoreState(state)
-            except Exception:
-                pass
-
-        # Дефолтная сортировка по сроку
-        col_due = getattr(self.model, "column_index", lambda k: 1)("due_date")
-        if not isinstance(col_due, int) or col_due < 0:
-            col_due = 1
-        self.view.sortByColumn(col_due, QtCore.Qt.AscendingOrder)
+        # Дефолтная сортировка (если нет сохранённой)
         try:
+            col_due = getattr(self.model, "column_index", lambda k: 1)("due_date")
+            if not isinstance(col_due, int) or col_due < 0:
+                col_due = 1
+            self.view.sortByColumn(col_due, QtCore.Qt.AscendingOrder)
             hdr.setSortIndicator(col_due, QtCore.Qt.AscendingOrder)
             hdr.setSortIndicatorShown(True)
         except Exception:
             pass
 
-        # Синхронизируем чекбоксы с текущей видимостью секций
-        self._sync_column_checks()
-
-        # Инициализация поиска/фильтра
+        # Поиск/фильтр — восстановление
         last_query = self.settings.value("search_query", "")
         self.search_edit.setText(str(last_query))
         last_filter = str(self.settings.value("filter_mode", "Все"))
@@ -469,102 +470,120 @@ class MainWindow(QtWidgets.QMainWindow):
         self.apply_search(self.search_edit.text())
         self.apply_filter()
 
+        # Пересчёт высоты строк
         self.view.resizeRowsToContents()
 
-        # Применение темы на старте
+        # Применение темы
         app = QtWidgets.QApplication.instance()
         if app:
-            if cur_theme == "dark":
-                try:
+            try:
+                if cur_theme == "dark":
                     enable_dark_theme(app)
-                except Exception:
-                    pass
-            else:
-                try:
+                else:
                     enable_light_theme(app)
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
-    # ===== Меню "Столбцы" и сохранение состояния =====
-    def _save_header_state(self):
+        # Отложенное восстановление: порядок/сортировка из saveState, затем ширины и видимость
+        QtCore.QTimer.singleShot(0, self._initial_restore)
+
+    # ===== Восстановление состояния таблицы =====
+    def _initial_restore(self):
+        # 1) Порядок и сортировка
         try:
-            hdr_state = self.view.horizontalHeader().saveState()
-            self.settings.setValue("header_state", hdr_state)
+            self._restoring_header = True
+            state = self.settings.value("table_header_state/MainView", type=QtCore.QByteArray)
+            if isinstance(state, QtCore.QByteArray) and not state.isEmpty():
+                self.view.horizontalHeader().restoreState(state)
+        except Exception:
+            pass
+        finally:
+            self._restoring_header = False
+
+        # 2) Видимость и ширины по колонкам
+        self._restore_columns_user_prefs()
+
+        # 3) После небольшой задержки начнём сохранять изменения пользователя
+        QtCore.QTimer.singleShot(400, lambda: setattr(self, "_startup_ignore_changes", False))
+
+        # Синхронизируем меню "Столбцы"
+        self._sync_column_checks()
+
+    def _restore_columns_user_prefs(self):
+        try:
+            hdr = self.view.horizontalHeader()
+            cols = self.view.model().columnCount()
+            group = "table_header_state/MainView"
+            for c in range(cols):
+                vis = self.settings.value(f"{group}/vis_{c}", None)
+                if vis is not None:
+                    vis_norm = bool(vis) if isinstance(vis, bool) else str(vis).lower() in ("1", "true", "t", "yes", "y")
+                    hdr.setSectionHidden(c, not vis_norm)
+                w = self.settings.value(f"{group}/width_{c}", None)
+                if w is not None:
+                    try:
+                        w_int = int(w)
+                        if w_int > 0:
+                            hdr.resizeSection(c, w_int)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
-    def _rebuild_columns_menu(self):
-        self.columns_menu.clear()
-        hdr = self.view.horizontalHeader()
-        self._column_actions = {}
-
-        for col in range(self.model.columnCount()):
-            name = self.model.headerData(col, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole)
-            text = str(name or f"Колонка {col + 1}")
-            act = QtWidgets.QAction(text, self, checkable=True)
-            act.setChecked(not hdr.isSectionHidden(col))
-
-            def on_toggled(checked, c=col):
-                hdr.setSectionHidden(c, not checked)
-                # При изменении видимости — сохраняем состояние
-                self._save_header_state()
-
-            act.toggled.connect(on_toggled)
-            self.columns_menu.addAction(act)
-            self._column_actions[col] = act
-
-        # Синхронизация при открытии меню
-        def sync_checks():
-            self._sync_column_checks()
-        self.columns_menu.aboutToShow.connect(sync_checks)
-
-    def _sync_column_checks(self):
-        hdr = self.view.horizontalHeader()
-        for col, act in list(self._column_actions.items()):
-            vis = not hdr.isSectionHidden(col)
-            # избегаем лишних сигналов
-            act.blockSignals(True)
-            act.setChecked(vis)
-            act.blockSignals(False)
-
-    # ===== Служебные методы =====
-    def on_toggle_theme(self, checked):
-        app = QtWidgets.QApplication.instance()
-        if not app:
+    # ===== Сохранение =====
+    def _save_header_state(self):
+        if self._restoring_header or self._startup_ignore_changes:
             return
         try:
-            if checked:
-                enable_dark_theme(app)
-                self.settings.setValue("theme", "dark")
-            else:
-                enable_light_theme(app)
-                self.settings.setValue("theme", "light")
+            hdr = self.view.horizontalHeader()
+            state = hdr.saveState()
+            self.settings.setValue("table_header_state/MainView", state)
+            self.settings.sync()
         except Exception:
             pass
 
-    def _on_section_resized(self, logicalIndex, oldSize, newSize):
-        if isinstance(self.desc_col, int) and self.desc_col >= 0 and logicalIndex == self.desc_col:
-            self.view.resizeRowsToContents()
-
-    def closeEvent(self, e):
+    def _on_section_resized_user(self, logicalIndex, oldSize, newSize):
+        if self._restoring_header or self._startup_ignore_changes:
+            return
         try:
-            self._save_header_state()
-        finally:
-            super().closeEvent(e)
+            group = "table_header_state/MainView"
+            self.settings.setValue(f"{group}/width_{logicalIndex}", int(newSize))
+            self.settings.sync()
+        except Exception:
+            pass
+        try:
+            if isinstance(self.desc_col, int) and self.desc_col >= 0 and logicalIndex == self.desc_col:
+                self.view.resizeRowsToContents()
+        except Exception:
+            pass
 
-    def source_row(self, proxy_index):
-        if not proxy_index.isValid():
-            return None
-        return self.proxy.mapToSource(proxy_index).row()
+    # ===== Поиск/фильтр/обновление =====
+    def apply_search(self, text):
+        col_title = getattr(self.model, "column_index", lambda k: 0)("title")
+        self.proxy.setFilterKeyColumn(col_title if isinstance(col_title, int) and col_title >= 0 else 0)
+        self.proxy.setFilterFixedString(text)
+        self.settings.setValue("search_query", text)
 
+    def apply_filter(self):
+        mode = self.filter_combo.currentText()
+        self.proxy.setMode(mode)
+        self.settings.setValue("filter_mode", mode)
+
+    def refresh(self):
+        self.model.load()
+        self.apply_search(self.search_edit.text())
+        self.apply_filter()
+        self.view.resizeRowsToContents()
+
+    # ===== Действия с задачами =====
     def selected_task(self):
         idx = self.view.currentIndex()
         if not idx.isValid():
             return None
-        row = self.source_row(idx)
-        return self.model.rows[row] if row is not None else None
+        src = self.proxy.mapToSource(idx)
+        row = src.row()
+        return self.model.rows[row] if 0 <= row < len(self.model.rows) else None
 
-    # ===== Действия =====
     def add_task(self):
         dlg = TaskDialog(self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
@@ -594,25 +613,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.repo.delete_task(task_id)
             self.refresh()
 
-    def apply_search(self, text):
-        col_title = getattr(self.model, "column_index", lambda k: 0)("title")
-        self.proxy.setFilterKeyColumn(col_title if isinstance(col_title, int) and col_title >= 0 else 0)
-        self.proxy.setFilterFixedString(text)
-        self.settings.setValue("search_query", text)
-
-    def apply_filter(self):
-        mode = self.filter_combo.currentText()
-        self.proxy.setMode(mode)
-        self.settings.setValue("filter_mode", mode)
-
-    def refresh(self):
-        self.model.load()
-        # Сохраняем текущий текст поиска и фильтр
-        self.apply_search(self.search_edit.text())
-        self.apply_filter()
-        # Сортировку отдельно не трогаем — её поддерживает dynamicSortFilter + индикатор уже выставлен
-        self.view.resizeRowsToContents()
-
     # ===== Контекстное меню таблицы =====
     def show_context_menu(self, pos):
         index = self.view.indexAt(pos)
@@ -621,7 +621,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.view.selectRow(index.row())
 
         menu = QtWidgets.QMenu(self)
-
         act_add = menu.addAction("Добавить")
         act_add.triggered.connect(self.add_task)
 
@@ -633,12 +632,13 @@ class MainWindow(QtWidgets.QMainWindow):
         act_del.setEnabled(has_sel)
         act_del.triggered.connect(self.delete_task)
 
-        # Подменю "Столбцы"
         menu.addSeparator()
-        menu.addMenu(self.columns_menu)
+        if self.columns_menu is not None:
+            self._sync_column_checks()
+            menu.addMenu(self.columns_menu)
 
-        task = self.selected_task() if has_sel else None
-        if task:
+        if has_sel:
+            task = self.selected_task()
             completed = bool(task.get("completed") if isinstance(task, dict) else task[5])
             toggle_text = "Отметить выполненной" if not completed else "Снять отметку выполнения"
 
@@ -660,6 +660,85 @@ class MainWindow(QtWidgets.QMainWindow):
         global_pos = self.view.viewport().mapToGlobal(pos)
         menu.exec_(global_pos)
 
+    # ===== Меню "Столбцы" =====
+    def _rebuild_columns_menu(self):
+        self.columns_menu.clear()
+        hdr = self.view.horizontalHeader()
+        self._column_actions = {}
+
+        cols = self.view.model().columnCount()
+        group = "table_header_state/MainView"
+
+        for col in range(cols):
+            name = self.model.headerData(col, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole)
+            text = str(name or f"Колонка {col + 1}")
+
+            vis_val = self.settings.value(f"{group}/vis_{col}", None)
+            if vis_val is None:
+                is_visible = not hdr.isSectionHidden(col)
+            else:
+                is_visible = bool(vis_val) if isinstance(vis_val, bool) else str(vis_val).lower() in ("1", "true", "t", "yes", "y")
+
+            act = QtWidgets.QAction(text, self, checkable=True)
+            act.setChecked(is_visible)
+
+            def on_toggled(checked, c=col):
+                if self._restoring_header or self._startup_ignore_changes:
+                    return
+                try:
+                    hdr.setSectionHidden(c, not checked)
+                    self.settings.setValue(f"{group}/vis_{c}", bool(checked))
+                    self.settings.sync()
+                except Exception:
+                    pass
+                self._sync_column_checks()
+                self._save_header_state()
+
+            act.toggled.connect(on_toggled)
+            self.columns_menu.addAction(act)
+            self._column_actions[col] = act
+
+        self.columns_menu.aboutToShow.connect(self._sync_column_checks)
+    def _sync_column_checks(self):
+        hdr = self.view.horizontalHeader()
+        group = "table_header_state/MainView"
+        for col, act in list(self._column_actions.items()):
+            vis_val = self.settings.value(f"{group}/vis_{col}", None)
+            if vis_val is None:
+                vis = not hdr.isSectionHidden(col)
+            else:
+                vis = bool(vis_val) if isinstance(vis_val, bool) else str(vis_val).lower() in ("1", "true", "t", "yes", "y")
+            act.blockSignals(True)
+            act.setChecked(vis)
+            act.blockSignals(False)
+
+    # ===== Тема =====
+    def on_toggle_theme(self, checked):
+        app = QtWidgets.QApplication.instance()
+        if not app:
+            return
+        try:
+            if checked:
+                enable_dark_theme(app)
+                self.settings.setValue("theme", "dark")
+            else:
+                enable_light_theme(app)
+                self.settings.setValue("theme", "light")
+        except Exception:
+            pass
+
+    # ===== Служебное =====
+    def closeEvent(self, e):
+        try:
+            self._save_header_state()
+            try:
+                self.settings.setValue("win/geometry", self.saveGeometry())
+                self.settings.sync()
+            except Exception:
+                pass
+        finally:
+            super().closeEvent(e)
+
     def show_about(self):
         QtWidgets.QMessageBox.about(
             self,
@@ -671,7 +750,6 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def show_help(self):
-        # Короткая справка + список горячих клавиш
         text = (
             "Справка\n\n"
             "PlanBoard — простой планировщик задач. Используйте поиск и фильтры "
@@ -682,7 +760,6 @@ class MainWindow(QtWidgets.QMainWindow):
             "  F3 — Редактировать выбранную\n"
             "  Delete — Удалить выбранную\n"
             "  F5 — Обновить список\n"
-            
         )
         QtWidgets.QMessageBox.information(self, "Справка", text)
 
@@ -760,6 +837,41 @@ class FramelessWindow(QtWidgets.QWidget):
             except Exception:
                 pass
             app.aboutToQuit.connect(self._save_window_state)
+
+        self._geom_save_timer = QtCore.QTimer(self)
+        self._geom_save_timer.setSingleShot(True)
+        self._geom_save_timer.setInterval(400)
+        self._geom_save_timer.timeout.connect(self._save_window_geometry)
+
+    def _save_window_geometry(self):
+        try:
+            self.settings.setValue("win/geometry", self.saveGeometry())
+            self.settings.sync()
+            # print("Frameless: geometry saved")
+        except Exception:
+            pass
+
+    def _restore_window_geometry(self):
+        try:
+            ba = self.settings.value("win/geometry", type=QtCore.QByteArray)
+            ok = False
+            if isinstance(ba, QtCore.QByteArray) and not ba.isEmpty():
+                ok = self.restoreGeometry(ba)
+            # print(f"Frameless: geometry restore ok={ok}")
+        except Exception:
+            pass
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        # отложенно сохраним геометрию, чтобы не писать на каждый пиксель
+        if self.isWindow():
+            self._geom_save_timer.start()
+
+    def moveEvent(self, e):
+        super().moveEvent(e)
+        if self.isWindow():
+            self._geom_save_timer.start()
+
 
     def _titlebar_double_click(self, e):
         if e.button() == QtCore.Qt.LeftButton:
