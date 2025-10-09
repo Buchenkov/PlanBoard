@@ -1,10 +1,30 @@
-import sys
+import sys, os
+from pathlib import Path
 from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
 import datetime
 
 from app.models import TaskTableModel
 from app.dialogs import TaskDialog
 from app.theme import enable_dark_theme, enable_light_theme
+
+
+try:
+    from PyQt5 import QtSvg  # noqa: F401
+except Exception:
+    pass
+
+def resource_path(rel_path: str) -> str:
+    """
+    Универсальный путь к ресурсам: работает и в dev, и в PyInstaller.
+    Предполагается структура: app/ (этот файл) и app/resources/...
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        base_path = Path(base)
+    else:
+        # views.py лежит в app/, поднимаемся в корень проекта, затем добавляем относительный путь
+        base_path = Path(__file__).resolve().parent.parent
+    return str((base_path / rel_path).resolve())
 
 
 class FilterProxy(QtCore.QSortFilterProxyModel):
@@ -83,7 +103,7 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
             return completed
         return True
     
-    
+ 
 class TitleBar(QtWidgets.QWidget):
     height_hint = 36
 
@@ -92,6 +112,7 @@ class TitleBar(QtWidgets.QWidget):
         self.setObjectName("TitleBar")
         self._pressed = False
         self._start_pos = None
+        self._icon_paths = {}
 
         # Кнопки управления окном
         self.btn_min = QtWidgets.QToolButton(self); self.btn_min.setObjectName("BtnMin")
@@ -102,7 +123,7 @@ class TitleBar(QtWidgets.QWidget):
             b.setCursor(QtCore.Qt.ArrowCursor)
             b.setAutoRaise(True)
 
-        # Текстовые fallback-иконки (если нет ресурсов)
+        # Fallback-текст
         self.btn_min.setText("–")
         self.btn_max.setText("□")
         self.btn_close.setText("×")
@@ -126,27 +147,18 @@ class TitleBar(QtWidgets.QWidget):
         self.btn_max.clicked.connect(self._on_max_restore)
         self.btn_close.clicked.connect(self._on_close)
 
-        # Применим стили и размеры
+        # Стили и иконки
         self._apply_style()
+        self._apply_icons()
 
     def _apply_style(self):
-        # Фиксируем высоту шапки
         self.setMinimumHeight(self.height_hint)
         self.setMaximumHeight(self.height_hint)
-
-        # Аккуратный стиль для тёмной/светлой темы
         self.setStyleSheet("""
-            QWidget#TitleBar {
-                background: transparent;
-            }
-            QLabel#TitleText {
-                color: palette(windowText);
-                font-weight: 600;
-            }
+            QWidget#TitleBar { background: transparent; }
+            QLabel#TitleText { color: palette(windowText); font-weight: 600; }
             QToolButton#BtnMin, QToolButton#BtnMax, QToolButton#BtnClose {
-                padding: 4px;
-                border-radius: 4px;
-                color: palette(buttonText);
+                padding: 4px; border-radius: 4px; color: palette(buttonText);
             }
             QToolButton#BtnMin:hover, QToolButton#BtnMax:hover {
                 background: rgba(128,128,128,0.25);
@@ -156,52 +168,73 @@ class TitleBar(QtWidgets.QWidget):
             }
         """)
 
-        # Попробуем подставить иконки из ресурсов, если есть
-        try:
-            from PyQt5 import QtGui
-            self.btn_min.setIcon(QtGui.QIcon("app/resources/icons/minimize.svg"))
-            self.btn_max.setIcon(QtGui.QIcon("app/resources/icons/maximize.svg"))
-            self.btn_close.setIcon(QtGui.QIcon("app/resources/icons/close.svg"))
-            # Если иконки заданы — уберём текст
-            self.btn_min.setText("")
-            self.btn_max.setText("")
-            self.btn_close.setText("")
-        except Exception:
-            # нет resources_rc — остаёмся на текстовых символах
-            pass
+    def _apply_icons(self):
+        # Одинаковый размер иконок
+        icon_size = QtCore.QSize(18, 18)
+        for b in (self.btn_min, self.btn_max, self.btn_close):
+            b.setIconSize(icon_size)
+
+        # Пути к иконкам
+        p_min = resource_path("app/resources/icons/minimize.svg")
+        p_max = resource_path("app/resources/icons/maximize.svg")
+        p_res = resource_path("app/resources/icons/restore.svg")
+        p_close = resource_path("app/resources/icons/close.svg")
+
+        def set_icon_safe(btn: QtWidgets.QToolButton, path: str, fallback: QtWidgets.QStyle.StandardPixmap):
+            if os.path.isfile(path):
+                btn.setIcon(QtGui.QIcon(path))
+                btn.setText("")
+            else:
+                btn.setIcon(self.style().standardIcon(fallback))
+
+        set_icon_safe(self.btn_min, p_min, QtWidgets.QStyle.SP_TitleBarMinButton)
+        set_icon_safe(self.btn_close, p_close, QtWidgets.QStyle.SP_TitleBarCloseButton)
+
+        # max/restore — по текущему состоянию окна
+        if self.window() and self.window().isMaximized() and os.path.isfile(p_res):
+            self.btn_max.setIcon(QtGui.QIcon(p_res)); self.btn_max.setText("")
+        elif os.path.isfile(p_max):
+            self.btn_max.setIcon(QtGui.QIcon(p_max)); self.btn_max.setText("")
+        else:
+            self.btn_max.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_TitleBarMaxButton))
+
+        self._icon_paths = {"maximize": p_max, "restore": p_res}
 
     def _window(self):
-        # Возвращаем верхнеуровневое окно
         return self.window()
 
     def _on_minimize(self):
         w = self._window()
-        if w: w.showMinimized()
+        if w:
+            w.showMinimized()
 
     def _on_max_restore(self):
         w = self._window()
-        if not w: return
+        if not w:
+            return
         if w.isMaximized():
             w.showNormal()
-            # сменим символ на "максимизировать"
-            if not self.btn_max.icon().isNull():
-                # если иконка из ресурсов есть — можно ничего не менять
-                pass
+            p = self._icon_paths.get("maximize", "")
+            if os.path.isfile(p):
+                self.btn_max.setIcon(QtGui.QIcon(p)); self.btn_max.setText("")
             else:
-                self.btn_max.setText("□")
+                self.btn_max.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_TitleBarMaxButton))
+                self.btn_max.setText("")
         else:
             w.showMaximized()
-            if not self.btn_max.icon().isNull():
-                pass
+            p = self._icon_paths.get("restore", "")
+            if os.path.isfile(p):
+                self.btn_max.setIcon(QtGui.QIcon(p)); self.btn_max.setText("")
             else:
-                # символ "восстановить"
-                self.btn_max.setText("❐")
+                self.btn_max.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_TitleBarNormalButton))
+                self.btn_max.setText("")
 
     def _on_close(self):
         w = self._window()
-        if w: w.close()
+        if w:
+            w.close()
 
-    # Перетаскивание окна левой кнопкой мыши за шапку
+    # Перетаскивание окна
     def mousePressEvent(self, e: QtGui.QMouseEvent):
         if e.button() == QtCore.Qt.LeftButton:
             self._pressed = True
@@ -745,6 +778,21 @@ class MainWindow(QtWidgets.QMainWindow):
             "О программе",
             "PlanBoard\n\n"
             "Простой планировщик задач.\n"
+            "Функционал:\n"
+
+            "- Создание, изменение и удаление задач (CRUD)\n"
+
+            "- Возможность сортировки по любому столбцу (при клике на заголовок)\n"
+
+            "- Встроенная строка поиска для быстрого нахождения задач по названию\n"
+
+            "- Применение фильтров для более точного отбора информации\n"
+
+            "- Изменение статуса задачи через контекстное меню\n"
+
+            "- Настройка отображения столбцов (выбор, скрытие, сохранение порядка и ширины)\n"
+
+            "- Поддержка тем оформления: светлая и тёмная (выбор сохраняется)\n"
             "Версия: 1.2.0\n"
             "Автор: Бученков Игорь"
         )
@@ -847,7 +895,6 @@ class FramelessWindow(QtWidgets.QWidget):
         try:
             self.settings.setValue("win/geometry", self.saveGeometry())
             self.settings.sync()
-            # print("Frameless: geometry saved")
         except Exception:
             pass
 
@@ -857,7 +904,6 @@ class FramelessWindow(QtWidgets.QWidget):
             ok = False
             if isinstance(ba, QtCore.QByteArray) and not ba.isEmpty():
                 ok = self.restoreGeometry(ba)
-            # print(f"Frameless: geometry restore ok={ok}")
         except Exception:
             pass
 
