@@ -2,6 +2,48 @@
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
+
+class HelpDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None, settings: QtCore.QSettings = None):
+        super().__init__(parent)
+        self.setWindowTitle("Справка — PlanBoard")
+        self.resize(600, 400)
+
+        self.settings = settings
+
+        self.browser = QtWidgets.QTextBrowser(self)
+        self.browser.setOpenExternalLinks(True)
+        self.browser.setReadOnly(True)
+
+        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok, parent=self)
+        btns.accepted.connect(self.accept)
+
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.addWidget(self.browser)
+        lay.addWidget(btns)
+
+        if self.settings is not None:
+            geom = self.settings.value("help_dialog_geometry")
+            if geom:
+                try:
+                    self.restoreGeometry(geom)
+                except Exception:
+                    pass
+
+    def set_help_text(self, text: str, is_html: bool = False):
+        if is_html:
+            self.browser.setHtml(text)
+        else:
+            self.browser.setPlainText(text)
+
+    def accept(self):
+        if self.settings is not None:
+            try:
+                self.settings.setValue("help_dialog_geometry", self.saveGeometry())
+            except Exception:
+                pass
+        super().accept()
+
 class TaskEditDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, task=None):
         super().__init__(parent)

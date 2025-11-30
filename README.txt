@@ -80,10 +80,6 @@
   - Убедись, что ресурсы включены: --add-data "app\resources;app\resources"
   - В коде используй безопасные пути к ресурсам (sys._MEIPASS для PyInstaller).
 
-- Конструкторы классов
-  - Используй __init__ (с двойными подчёркиваниями), а не init.
-  - Вызов базового конструктора: super().__init__(parent)
-
 - Обновление зависимостей
   - python -m pip freeze | Out-File -FilePath requirements.txt -Encoding utf8
 
