@@ -529,6 +529,131 @@ class MainWindow(QtWidgets.QMainWindow):
         # Отложенное восстановление: порядок/сортировка из saveState, затем ширины и видимость
         QtCore.QTimer.singleShot(0, self._initial_restore)
 
+    # для применения шрифта и метод смены шрифта
+    def _apply_font_to_ui(self, f):
+        """
+        Применяем шрифт ко всему окну: к приложению, самому окну,
+        ко всем дочерним виджетам, тулбарам, меню и (если есть) кастомной метке заголовка.
+        Затем форсируем перерисовку/пересчёт.
+        """
+        app = QtWidgets.QApplication.instance()
+        if app:
+            try:
+                app.setFont(f)
+            except Exception:
+                pass
+
+        try:
+            self.setFont(f)
+        except Exception:
+            pass
+
+        # Все виджеты — рекурсивно
+        try:
+            for w in self.findChildren(QtWidgets.QWidget):
+                try:
+                    w.setFont(f)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Меню/меню-объекты
+        try:
+            mb = self.menuBar()
+            if mb:
+                mb.setFont(f)
+                for m in mb.findChildren(QtWidgets.QMenu):
+                    try:
+                        m.setFont(f)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # Все тулбары и виджеты действий в них (toolbutton'ы)
+        try:
+            for tb in self.findChildren(QtWidgets.QToolBar):
+                try:
+                    tb.setFont(f)
+                except Exception:
+                    pass
+                for act in tb.actions():
+                    try:
+                        w = tb.widgetForAction(act)
+                        if isinstance(w, QtWidgets.QWidget):
+                            w.setFont(f)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # Ваше главное меню, если оно отдельно (main_menu)
+        try:
+            if getattr(self, "main_menu", None):
+                try:
+                    self.main_menu.setFont(f)
+                except Exception:
+                    pass
+                for m in self.main_menu.findChildren(QtWidgets.QMenu):
+                    try:
+                        m.setFont(f)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # Кастомная метка заголовка (если у вас frameless window с QLabel)
+        try:
+            if hasattr(self, "title_label") and isinstance(self.title_label, QtWidgets.QLabel):
+                try:
+                    self.title_label.setFont(f)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Форсируем обновление интерфейса
+        try:
+            self.update()
+            self.repaint()
+            if getattr(self, "view", None):
+                try:
+                    self.view.viewport().update()
+                    self.view.resizeRowsToContents()
+                except Exception:
+                    pass
+            if getattr(self, "proxy", None):
+                try:
+                    self.proxy.invalidate()
+                except Exception:
+                    pass
+            if getattr(self, "model", None):
+                try:
+                    self.model.layoutChanged.emit()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
+    def change_font(self):
+        # открываем диалог с текущим системным/приложенческим шрифтом по умолчанию
+        cur = QtWidgets.QApplication.instance().font() if QtWidgets.QApplication.instance() else QtGui.QFont()
+        f, ok = QtWidgets.QFontDialog.getFont(cur, self, "Выберите шрифт")
+        if not ok:
+            return
+        # Сохраняем настройки
+        try:
+            self.settings.setValue("font_family", f.family())
+            self.settings.setValue("font_size", f.pointSize())
+        except Exception:
+            pass
+
+        # Применяем шрифт
+        self._apply_font_to_ui(f)
+
+
         # при старте восстанавливаем шрифт из настроек
     def _restore_font_from_settings(self):
         family = self.settings.value("font_family", "")
@@ -537,27 +662,25 @@ class MainWindow(QtWidgets.QMainWindow):
             try:
                 size = int(size)
                 f = QtGui.QFont(family, size)
-                QtWidgets.QApplication.instance().setFont(f)
+                self._apply_font_to_ui(f)
             except Exception:
                 pass
 
 
-
-
-    # метод-обработчик для пункта меню
-    def change_font(self):
-        current_font = QtWidgets.QApplication.instance().font()
-        font, ok = QtWidgets.QFontDialog.getFont(current_font, self, "Выберите шрифт")
-        if not ok:
-            return
-        # применяем ко всему приложению
-        QtWidgets.QApplication.instance().setFont(font)
-        # сохраняем настройки (семейство + размер достаточно; можно добавить вес/курcив)
-        try:
-            self.settings.setValue("font_family", font.family())
-            self.settings.setValue("font_size", font.pointSize())
-        except Exception:
-            pass
+    # # метод-обработчик для пункта меню
+    # def change_font(self):
+    #     current_font = QtWidgets.QApplication.instance().font()
+    #     font, ok = QtWidgets.QFontDialog.getFont(current_font, self, "Выберите шрифт")
+    #     if not ok:
+    #         return
+    #     # применяем ко всему приложению
+    #     QtWidgets.QApplication.instance().setFont(font)
+    #     # сохраняем настройки (семейство + размер достаточно; можно добавить вес/курcив)
+    #     try:
+    #         self.settings.setValue("font_family", font.family())
+    #         self.settings.setValue("font_size", font.pointSize())
+    #     except Exception:
+    #         pass
 
     # ===== Восстановление состояния таблицы =====
     def _initial_restore(self):
