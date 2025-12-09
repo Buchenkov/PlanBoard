@@ -14,6 +14,7 @@
 - Переключение статуса выполнения задачи из контекстного меню
 - Настраиваемые столбцы (показ/скрытие, сохранение ширины и порядка)
 - Темы: светлая/тёмная (сохранение выбора)
+- Изменение размера и стиля шрифта
 - Сохранение состояния таблицы и окна между запусками
 
 ## Горячие клавиши
@@ -25,8 +26,8 @@
 - Двойной клик по строке — редактирование задачи
 
 ## Требования
-- Windows 10/11
-- Python 3.8+ (желательно 64‑bit)
+- Windows 7/10/11
+- Python 3.7+ (желательно 64‑bit)
 - Git (для клонирования)
 - Рекомендуется виртуальное окружение venv
 
@@ -69,24 +70,3 @@
 - requirements.txt — зависимости
 - .gitignore — исключения для Git
 
-## Частые проблемы и решения
-- Qt: “Could not find the Qt platform plugin 'windows'”
-  - Запусти в новой сессии PowerShell после активации venv.
-  - Очисти переменные окружения QT_PLUGIN_PATH / QT_QPA_PLATFORM_PLUGIN_PATH.
-  - Проверь наличие qwindows.dll в venv: PyQt5/Qt/plugins/platforms/qwindows.dll.
-
-- Иконки не отображаются в .exe
-  - Добавь поддержку SVG: --hidden-import PyQt5.QtSvg
-  - Убедись, что ресурсы включены: --add-data "app\resources;app\resources"
-  - В коде используй безопасные пути к ресурсам (sys._MEIPASS для PyInstaller).
-
-- Обновление зависимостей
-  - python -m pip freeze | Out-File -FilePath requirements.txt -Encoding utf8
-
-## Команды разработки
-- Обновить зависимости:
-  - python -m pip freeze | Out-File -FilePath requirements.txt -Encoding utf8
-- Коммиты:
-  - git add .
-  - git commit -m "Update"
-  - git push

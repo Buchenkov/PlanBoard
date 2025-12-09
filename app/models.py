@@ -14,9 +14,7 @@ class TaskTableModel(QtCore.QAbstractTableModel):
         ("priority", "Приоритет"),
         # ("id", "ID"),  # больше не показываем ID в таблице
     ]
-
-    # Индексация для варианта с кортежами:
-    # (id, title, description, due_date, created_at, completed, priority)
+ 
     TUPLE_INDEX = {
         "id": 0,
         "title": 1,
@@ -32,9 +30,6 @@ class TaskTableModel(QtCore.QAbstractTableModel):
         self.repo = repo
         self.rows = []
         self.order_by = "due_date ASC, priority DESC, id DESC"
-
-        # self.view.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        # self.view.customContextMenuRequested.connect(self.show_context_menu)
 
         self.load()
 
@@ -114,3 +109,4 @@ class TaskTableModel(QtCore.QAbstractTableModel):
 
     def task_at_row(self, row):
         return self.rows[row]
+    

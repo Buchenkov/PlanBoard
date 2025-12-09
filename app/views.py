@@ -531,156 +531,153 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # для применения шрифта и метод смены шрифта
     def _apply_font_to_ui(self, f):
+        # 1: определение метода, принимает self и QFont f
         """
         Применяем шрифт ко всему окну: к приложению, самому окну,
         ко всем дочерним виджетам, тулбарам, меню и (если есть) кастомной метке заголовка.
         Затем форсируем перерисовку/пересчёт.
         """
-        app = QtWidgets.QApplication.instance()
-        if app:
+        app = QtWidgets.QApplication.instance()  # 2: получаем текущий экземпляр QApplication (если есть)
+        if app:  # 3: если приложение найдено
             try:
-                app.setFont(f)
+                app.setFont(f)  # 4: устанавливаем шрифт глобально для приложения
             except Exception:
-                pass
+                pass  # 5: игнорируем ошибки — защитный код, чтобы не упасть
 
         try:
-            self.setFont(f)
+            self.setFont(f)  # 6: пытаемся установить шрифт конкретно для главного окна/виджета
         except Exception:
-            pass
+            pass  # 7: опять — пропускаем ошибки
 
         # Все виджеты — рекурсивно
         try:
-            for w in self.findChildren(QtWidgets.QWidget):
+            for w in self.findChildren(QtWidgets.QWidget):  # 8: перебираем всех дочерних QWidget рекурсивно
                 try:
-                    w.setFont(f)
+                    w.setFont(f)  # 9: устанавливаем шрифт для каждого дочернего виджета
                 except Exception:
-                    pass
+                    pass  # 10: пропускаем ошибки для отдельных виджетов
         except Exception:
-            pass
+            pass  # 11: защита на случай проблем с findChildren или итерацией
 
         # Меню/меню-объекты
         try:
-            mb = self.menuBar()
-            if mb:
-                mb.setFont(f)
-                for m in mb.findChildren(QtWidgets.QMenu):
+            mb = self.menuBar()  # 12: получаем меню-бар окна (если есть)
+            if mb:  # 13: если меню-бар присутствует
+                mb.setFont(f)  # 14: устанавливаем шрифт для меню-бар
+                for m in mb.findChildren(QtWidgets.QMenu):  # 15: перебираем все QMenu внутри меню-бара
                     try:
-                        m.setFont(f)
+                        m.setFont(f)  # 16: устанавливаем шрифт для каждого QMenu
                     except Exception:
-                        pass
+                        pass  # 17: пропускаем ошибки для отдельных меню
         except Exception:
-            pass
+            pass  # 18: общая защита для блока меню
 
         # Все тулбары и виджеты действий в них (toolbutton'ы)
         try:
-            for tb in self.findChildren(QtWidgets.QToolBar):
+            for tb in self.findChildren(QtWidgets.QToolBar):  # 19: перебираем все QToolBar в окне
                 try:
-                    tb.setFont(f)
+                    tb.setFont(f)  # 20: устанавливаем шрифт для тулбара
                 except Exception:
-                    pass
-                for act in tb.actions():
+                    pass  # 21: пропускаем ошибки для конкретного тулбара
+                for act in tb.actions():  # 22: перебираем все QAction-ы в тулбаре
                     try:
-                        w = tb.widgetForAction(act)
-                        if isinstance(w, QtWidgets.QWidget):
-                            w.setFont(f)
+                        w = tb.widgetForAction(act)  # 23: получаем виджет, созданный для данной QAction (если есть)
+                        if isinstance(w, QtWidgets.QWidget):  # 24: проверяем, что это виджет
+                            w.setFont(f)  # 25: устанавливаем шрифт для этого виджета (например, toolbutton)
                     except Exception:
-                        pass
+                        pass  # 26: пропускаем ошибки на уровне action/widget
         except Exception:
-            pass
+            pass  # 27: защита для всего блока тулбаров
 
         # Ваше главное меню, если оно отдельно (main_menu)
         try:
-            if getattr(self, "main_menu", None):
+            if getattr(self, "main_menu", None):  # 28: проверяем, есть ли у объекта атрибут main_menu
                 try:
-                    self.main_menu.setFont(f)
+                    self.main_menu.setFont(f)  # 29: пытаемся установить шрифт для main_menu
                 except Exception:
-                    pass
-                for m in self.main_menu.findChildren(QtWidgets.QMenu):
+                    pass  # 30: игнорируем ошибки
+                for m in self.main_menu.findChildren(QtWidgets.QMenu):  # 31: перебираем QMenu внутри main_menu
                     try:
-                        m.setFont(f)
+                        m.setFont(f)  # 32: устанавливаем шрифт для каждого пункта меню
                     except Exception:
-                        pass
+                        pass  # 33: пропускаем ошибки
         except Exception:
-            pass
+            pass  # 34: общая защита для блока main_menu
 
         # Кастомная метка заголовка (если у вас frameless window с QLabel)
         try:
-            if hasattr(self, "title_label") and isinstance(self.title_label, QtWidgets.QLabel):
+            if hasattr(self, "title_label") and isinstance(self.title_label, QtWidgets.QLabel):  # 35: если есть title_label и он QLabel
                 try:
-                    self.title_label.setFont(f)
+                    self.title_label.setFont(f)  # 36: устанавливаем шрифт для кастомной метки заголовка
                 except Exception:
-                    pass
+                    pass  # 37: игнорируем ошибки установки шрифта для заголовка
         except Exception:
-            pass
+            pass  # 38: защита для блока заголовка
 
         # Форсируем обновление интерфейса
         try:
-            self.update()
-            self.repaint()
-            if getattr(self, "view", None):
+            self.update()  # 39: просим Qt обновить (перерисовать) виджет (отправляет событие обновления)
+            self.repaint()  # 40: немедленно перерисовываем (синхронная перерисовка)
+            if getattr(self, "view", None):  # 41: если у объекта есть атрибут view (например, QTableView)
                 try:
-                    self.view.viewport().update()
-                    self.view.resizeRowsToContents()
+                    self.view.viewport().update()  # 42: обновляем содержимое области просмотра таблицы
+                    self.view.resizeRowsToContents()  # 43: пересчитываем высоты строк (если зависят от шрифта)
                 except Exception:
-                    pass
-            if getattr(self, "proxy", None):
+                    pass  # 44: пропускаем ошибки при обновлении view
+            if getattr(self, "proxy", None):  # 35: если есть proxy (QSortFilterProxyModel)
                 try:
-                    self.proxy.invalidate()
+                    self.proxy.invalidate()  # 46: инвалидируем прокси — он пересчитает фильтрацию/сортировку и обновит view
                 except Exception:
-                    pass
-            if getattr(self, "model", None):
+                    pass  # 47: пропускаем ошибки у прокси
+            if getattr(self, "model", None):  # 48: если есть модель данных
                 try:
-                    self.model.layoutChanged.emit()
+                    self.model.layoutChanged.emit()  # 49: эмитим сигнал layoutChanged — заставит view перечитать макет/отрисовку элементов
                 except Exception:
-                    pass
+                    pass  # 50: пропускаем ошибки при уведомлении модели
         except Exception:
-            pass
+            pass  # 51: защита для финального блока обновлений
 
 
     def change_font(self):
-        # открываем диалог с текущим системным/приложенческим шрифтом по умолчанию
         cur = QtWidgets.QApplication.instance().font() if QtWidgets.QApplication.instance() else QtGui.QFont()
         f, ok = QtWidgets.QFontDialog.getFont(cur, self, "Выберите шрифт")
         if not ok:
             return
-        # Сохраняем настройки
-        try:
-            self.settings.setValue("font_family", f.family())
-            self.settings.setValue("font_size", f.pointSize())
-        except Exception:
-            pass
 
-        # Применяем шрифт
+        # Сохранение всех нужных свойств
+        self.settings.setValue("font_family", f.family())
+        self.settings.setValue("font_size", f.pointSize())
+        self.settings.setValue("font_bold", f.bold())
+        self.settings.setValue("font_italic", f.italic())
+        self.settings.sync()
+
+        # Применение
         self._apply_font_to_ui(f)
+
 
 
         # при старте восстанавливаем шрифт из настроек
     def _restore_font_from_settings(self):
         family = self.settings.value("font_family", "")
         size = self.settings.value("font_size", "")
+        bold = self.settings.value("font_bold", False)
+        italic = self.settings.value("font_italic", False)
+
+        # Универсальная конвертация в bool — на случай разных бекендов QSettings
+        def to_bool(v):
+            if isinstance(v, bool):
+                return v
+            return str(v).lower() in ("1", "true", "yes", "y", "on")
+
         if family and size:
             try:
-                size = int(size)
-                f = QtGui.QFont(family, size)
+                f = QtGui.QFont(str(family), int(size))
+                f.setBold(to_bool(bold))
+                f.setItalic(to_bool(italic))
+
                 self._apply_font_to_ui(f)
             except Exception:
                 pass
-
-
-    # # метод-обработчик для пункта меню
-    # def change_font(self):
-    #     current_font = QtWidgets.QApplication.instance().font()
-    #     font, ok = QtWidgets.QFontDialog.getFont(current_font, self, "Выберите шрифт")
-    #     if not ok:
-    #         return
-    #     # применяем ко всему приложению
-    #     QtWidgets.QApplication.instance().setFont(font)
-    #     # сохраняем настройки (семейство + размер достаточно; можно добавить вес/курcив)
-    #     try:
-    #         self.settings.setValue("font_family", font.family())
-    #         self.settings.setValue("font_size", font.pointSize())
-    #     except Exception:
-    #         pass
 
     # ===== Восстановление состояния таблицы =====
     def _initial_restore(self):
@@ -952,10 +949,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
             "- Изменение статуса задачи через контекстное меню\n"
 
+            "- Изменение стиля и размера шрифта\n"
+
             "- Настройка отображения столбцов (выбор, скрытие, сохранение порядка и ширины)\n"
 
             "- Поддержка тем оформления: светлая и тёмная (выбор сохраняется)\n"
-            "Версия: 1.2.0\n"
+            "Версия: 1.3.0\n"
             "Автор: Бученков Игорь"
         )
 
