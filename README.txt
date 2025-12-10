@@ -59,6 +59,8 @@
     --hidden-import PyQt5.QtSvg ^
     app\main.py
 
+(на моём компе: .\.venv\Scripts\pyinstaller.exe --onefile --windowed --icon "F:\Projects\PlanBoard\app\resources\icons\app.ico" --add-data "F:\Projects\PlanBoard\app\resources;app\resources" "F:\Projects\PlanBoard\app\main.py")
+
 Совет: поместите команду сборки в build.bat, чтобы не терялись двойные дефисы при копировании.
 
 ## Структура проекта
