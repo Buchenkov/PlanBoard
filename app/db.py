@@ -27,13 +27,3 @@ def init_db():
     finally:
         conn.close()
 
-
-# б/д рядом с .exe
-# def init_db():
-#     global conn
-#     conn = sqlite3.connect('tasks_db_3.db')
-#     try:
-#         conn.executescript(DDL)  # выполняем весь DDL разом
-#         conn.commit()
-#     finally:
-#         conn.close()

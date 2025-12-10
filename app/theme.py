@@ -1,4 +1,4 @@
-
+# Style
 from PyQt5 import QtWidgets, QtGui, QtCore
 
 def _apply_common_qss(app: QtWidgets.QApplication, is_dark: bool):
